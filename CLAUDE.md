@@ -51,7 +51,9 @@ src/audio/        browser audio: context.ts (shared AudioContext + iOS unlock), 
 src/session/      freestyle settings form/hook/server action, CalibrationStatus; src/words/ = server word queries
 src/recording/    microphone.ts, markerRecorder.ts (MediaRecorder + sync marker), latencyStore.ts (localStorage)
 src/recordings/   server actions: getSaveStatus, createRecording, deleteRecording, renameRecording, getPlayback
-src/audio/mixPlayer.ts  plays beat + vocal in sync on the beat timeline (review, Recordings page, later editor/share)
+src/audio/mixPlayer.ts  plays beat + vocal (+ edits) in sync; mixGraph.ts = shared effects chain;
+                  renderMix.ts = offline render of the edited mix (share page / video export)
+src/editor/       RecordingEditor (trim/cut/mix/effects UI) + EditorTimeline
 src/beats/        server-only beat queries + resolveAudioUrls (signed URLs; never send audio_path to the client)
 src/supabase/     server.ts / browser.ts (act as the user), admin.ts (service role), proxy.ts
 src/components/   shared UI (ui.ts has buttonClass/inputClass)
@@ -172,7 +174,7 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
       lib/words/picker (shuffle-bag, seeded), lib/session/settings (saved in
       user_settings.preferences.freestyle). src/audio/freestyleEngine schedules clicks + beat on the
       AudioContext clock; FreestyleSession reads ctx.currentTime each frame (minus estimated output
-      latency). Pause = ctx.suspend(). Wake lock while running. Awaiting owner test.
+      latency). Pause = ctx.suspend(). Wake lock while running. Owner confirmed working.
 - [x] Step 4 — recording: Record toggle + mic explainer; MarkerRecorder records mic through the
       AudioContext with MediaRecorder (AAC/mp4 preferred, WebM fallback; no LGPL encoders) and stamps a
       3 kHz marker at a known context time, so file time ↔ audio clock is exact (loopback test: constant
@@ -182,8 +184,16 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
       with roundTrip/2. Review screen: waveform, play, ±300 ms sync nudge, title, Save/Discard.
       No pausing while recording (backgrounding ends the take). Save = getSaveStatus → upload to
       recordings/<uid>/<uuid>.<ext> → createRecording; limit → SaveLimitModal (delete one / upgrade).
-      Recordings page: play/rename/delete + "x of 3 free saves". Awaiting owner test.
-- [ ] Step 5 — recording editor (needs a migration adding recordings.edits jsonb + grant update).
+      Recordings page: play/rename/delete + "x of 3 free saves". Owner confirmed working.
+- [x] Step 5 — recording editor. Migration 20261021000000_recording_edits.sql (edits jsonb, size
+      check, grant update(edits)) — owner must run it (SETUP.md "Database updates"). lib/editing/edits
+      (normalize, bar-snapped cuts, kept segments, output↔source time maps, activeWordAt) and
+      lib/editing/plan (clips with 10 ms cut fades / 30 ms edge fades). src/audio/mixGraph is THE audio
+      chain (gains → reverb convolver w/ seeded impulse + dotted-8th echo → limiter → 0.85 out);
+      scheduleClip + MixPlayer (live) + renderMix (OfflineAudioContext — for step 7 share/video).
+      src/editor/RecordingEditor + EditorTimeline used on the review screen and /recordings/[id]/edit.
+      Offline render test: exact edited length, click-free cuts, no clipping at max settings.
+      Awaiting owner test.
 - Check in step 7: recordings made in Chrome on Linux/Firefox are WebM or Opus-in-MP4; verify they
   play on iPhone Safari share pages, else transcode or prefer another format.
 - Admins can play premium beats (treated as premium for access checks).
@@ -192,5 +202,13 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 - Analytics events (session_started/session_completed, …) are wired up in step 9.
 
 ## Before launch (don't forget)
+- **Privacy policy + terms of service pages** (/privacy, /terms), linked from sign-up, landing footer
+  and settings. Owner to source the legal text (lawyer or Termly/iubenda); we build the pages.
+  Must cover voice recordings, public share pages, analytics, Stripe, and teen users.
+- **Age gate 16+ outside the US, 13+ in the US** (EU/UK GDPR consent age). Owner decision, not yet
+  built. Plan: ask country (prefill from Vercel's `x-vercel-ip-country` header) + age confirmation at
+  sign-up/onboarding; store `country` + `age_confirmed_at`; minimum age from a lib/account rule with tests.
+- **Account deletion** (Settings → Delete account: removes recordings, files, profile) — app stores
+  need it and privacy laws expect it.
 - "Confirm email" is currently OFF in Supabase (built-in mailer timed out). In step 9: set up custom
   SMTP (e.g. Resend), turn Confirm email back on, and apply the SETUP.md Part 5 email template.

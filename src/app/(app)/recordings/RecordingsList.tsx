@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "@lib/beats/library";
+import { activeWordAt, normalizeEdits } from "@lib/editing/edits";
+import { mixDuration } from "@lib/playback/schedule";
+import { secondsPerBar } from "@lib/timing/beatClock";
+import Link from "next/link";
 import { getAudioContext } from "@/audio/context";
 import { MixPlayer } from "@/audio/mixPlayer";
 import { PlayIcon, SpinnerIcon, StopIcon } from "@/components/icons";
@@ -53,7 +57,7 @@ export function RecordingsList({ items, highlightId }: { items: RecordingItem[];
     const tick = () => {
       const pos = l.player.position;
       setProgress(l.player.duration > 0 ? pos / l.player.duration : 0);
-      setWord([...l.info.words].reverse().find((w) => w.time <= pos + 0.01)?.word ?? null);
+      setWord(activeWordAt(l.info.words, l.player.beatTimelinePosition)?.word ?? null);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -83,12 +87,14 @@ export function RecordingsList({ items, highlightId }: { items: RecordingItem[];
         // Keep memory in check on phones: one decoded recording at a time.
         for (const old of loaded.current.values()) old.player.dispose();
         loaded.current.clear();
-        const player = new MixPlayer(ctx, beat, vocal, {
+        const track = {
           beatFirstDownbeat: info.beatFirstDownbeat,
           beatDuration: beat.duration,
           vocalOffset: info.vocalOffset,
           vocalDuration: vocal.duration,
-        });
+        };
+        const edits = normalizeEdits(info.edits, mixDuration(track), secondsPerBar(info.bpm));
+        const player = new MixPlayer(ctx, beat, vocal, track, info.bpm, edits);
         l = { player, info };
         loaded.current.set(id, l);
       } catch (err) {
@@ -207,6 +213,7 @@ function RecordingRow({
       {!editing && (
         <div className="flex border-t border-line text-sm font-bold">
           <button type="button" onClick={() => setEditing(true)} className="min-h-12 flex-1 text-dim hover:text-fg">Rename</button>
+          <Link href={`/recordings/${item.id}/edit`} className="flex min-h-12 flex-1 items-center justify-center border-l border-line text-gold">Edit</Link>
           <button type="button" onClick={remove} disabled={busy} className="min-h-12 flex-1 border-l border-line text-danger disabled:opacity-50">
             {busy ? "Deleting…" : "Delete"}
           </button>

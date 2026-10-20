@@ -2,18 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { computePeaks, normalizePeaks } from "@lib/audio/peaks";
-import { mixDuration } from "@lib/playback/schedule";
+import { useState } from "react";
+import { DEFAULT_EDITS, isDefaultEdits, type RecordingEdits } from "@lib/editing/edits";
 import type { RecordedWord } from "@lib/recording/sync";
 import type { FreestyleSettings } from "@lib/session/settings";
-import { formatDuration } from "@lib/beats/library";
-import { getAudioContext } from "@/audio/context";
-import { MixPlayer } from "@/audio/mixPlayer";
-import { PlayIcon, StopIcon } from "@/components/icons";
 import { SaveLimitModal } from "@/components/SaveLimitModal";
 import { buttonClass, inputClass, labelClass } from "@/components/ui";
-import { vocalTimelineSamples, Waveform } from "@/components/Waveform";
+import { RecordingEditor } from "@/editor/RecordingEditor";
 import { baseMimeType, extensionFor } from "@/recording/markerRecorder";
 import { createRecording, getSaveStatus, type SavedRecordingSummary } from "@/recordings/actions";
 import { createClient } from "@/supabase/browser";
@@ -39,82 +34,19 @@ export function RecordingReview({
   onDiscard,
 }: {
   draft: RecordingDraft;
-  beat: { id: string; title: string; firstDownbeatSeconds: number };
+  beat: { id: string; title: string; bpm: number; firstDownbeatSeconds: number };
   beatBuffer: AudioBuffer;
   onDiscard: () => void;
 }) {
   const router = useRouter();
   const [nudgeMs, setNudgeMs] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [position, setPosition] = useState(0);
   const [title, setTitle] = useState(() => `${beat.title} · ${new Date().toLocaleDateString()}`);
+  const [edits, setEdits] = useState<RecordingEdits>(DEFAULT_EDITS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [limitRecordings, setLimitRecordings] = useState<SavedRecordingSummary[] | null>(null);
-  const playerRef = useRef<MixPlayer | null>(null);
 
   const offset = draft.vocalOffset + nudgeMs / 1000;
-  const duration = mixDuration({
-    beatFirstDownbeat: beat.firstDownbeatSeconds,
-    beatDuration: beatBuffer.duration,
-    vocalOffset: offset,
-    vocalDuration: draft.buffer.duration,
-  });
-
-  useEffect(() => {
-    const player = new MixPlayer(getAudioContext(), beatBuffer, draft.buffer, {
-      beatFirstDownbeat: beat.firstDownbeatSeconds,
-      beatDuration: beatBuffer.duration,
-      vocalOffset: draft.vocalOffset,
-      vocalDuration: draft.buffer.duration,
-    });
-    player.onEnded = () => {
-      setPlaying(false);
-      setPosition(0);
-      player.seek(0);
-    };
-    playerRef.current = player;
-    return () => player.dispose();
-  }, [beatBuffer, draft, beat.firstDownbeatSeconds]);
-
-  useEffect(() => {
-    playerRef.current?.setVocalOffset(offset);
-  }, [offset]);
-
-  useEffect(() => {
-    if (!playing) return;
-    let frame = 0;
-    const tick = () => {
-      setPosition(playerRef.current?.position ?? 0);
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [playing]);
-
-  const peaks = useMemo(
-    () => normalizePeaks(computePeaks(vocalTimelineSamples(draft.buffer, offset, duration), 600)),
-    [draft.buffer, offset, duration],
-  );
-  const currentWord = [...draft.words].reverse().find((w) => w.time <= position + 0.01)?.word;
-
-  async function togglePlay() {
-    const player = playerRef.current;
-    if (!player) return;
-    if (player.isPlaying) {
-      player.pause();
-      setPlaying(false);
-    } else {
-      await getAudioContext().resume();
-      player.play();
-      setPlaying(true);
-    }
-  }
-
-  function seek(fraction: number) {
-    playerRef.current?.seek(fraction * duration);
-    setPosition(fraction * duration);
-  }
 
   async function save() {
     setSaving(true);
@@ -144,6 +76,7 @@ export function RecordingReview({
         latencySeconds: draft.latency,
         wordSequence: draft.words,
         sessionSettings: draft.settings,
+        edits: isDefaultEdits(edits) ? null : edits,
       });
       if (!result.ok) {
         if (result.limitReached) {
@@ -152,7 +85,6 @@ export function RecordingReview({
         }
         return setError(result.error);
       }
-      playerRef.current?.pause();
       router.push(`/recordings?saved=${result.id}`);
     } finally {
       setSaving(false);
@@ -161,7 +93,6 @@ export function RecordingReview({
 
   function discard() {
     if (!confirm("Discard this take? It hasn't been saved.")) return;
-    playerRef.current?.pause();
     onDiscard();
   }
 
@@ -172,23 +103,16 @@ export function RecordingReview({
         <h1 className="font-display text-5xl uppercase leading-none">Listen back</h1>
       </header>
 
-      <section className="rounded-2xl border-2 border-line bg-panel p-4">
-        <div className="flex items-center gap-4">
-          <button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"}
-            className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full ${playing ? "bg-hot text-white" : "bg-gold text-ink"}`}>
-            {playing ? <StopIcon className="h-7 w-7" /> : <PlayIcon className="ml-1 h-7 w-7" />}
-          </button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-display text-3xl uppercase text-gold">{currentWord ?? "—"}</p>
-            <p className="text-sm tabular-nums text-dim">
-              {formatDuration(position)} / {formatDuration(duration)}
-            </p>
-          </div>
-        </div>
-        <div className="mt-4">
-          <Waveform peaks={peaks} progress={duration > 0 ? position / duration : 0} onSeek={seek} />
-        </div>
-      </section>
+      <RecordingEditor
+        beatBuffer={beatBuffer}
+        vocalBuffer={draft.buffer}
+        bpm={beat.bpm}
+        beatFirstDownbeat={beat.firstDownbeatSeconds}
+        vocalOffset={offset}
+        words={draft.words}
+        edits={edits}
+        onEditsChange={setEdits}
+      />
 
       <section className="rounded-2xl border-2 border-line bg-panel p-4">
         <div className="flex items-center justify-between">

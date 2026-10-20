@@ -140,6 +140,18 @@ Takes about 15 minutes. Until this is done, the "Continue with Google" button sh
 
 ---
 
+## Database updates for later steps
+
+Some build steps add to the database. Run each update **once**, in order, the same way as Part 1:
+Supabase → **SQL Editor → + New query** → paste the file's raw contents → **Run** → "Success".
+(Each update is safe to run twice by accident.)
+
+| Step | File | What it adds |
+|---|---|---|
+| 5 | [`supabase/migrations/20261021000000_recording_edits.sql`](https://github.com/Poko312/ryme-tyme/blob/main/supabase/migrations/20261021000000_recording_edits.sql) | Saved edits (trim, cuts, mix, effects) on recordings |
+
+---
+
 ## Running it on your own computer (optional — not needed if you test on Vercel)
 
 1. Install Node.js 22 or newer from https://nodejs.org (the "LTS" button).

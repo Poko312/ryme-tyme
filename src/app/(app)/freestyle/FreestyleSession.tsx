@@ -361,7 +361,7 @@ export function FreestyleSession({
     return (
       <RecordingReview
         draft={draft}
-        beat={{ id: beat.id, title: beat.title, firstDownbeatSeconds: beat.firstDownbeatSeconds }}
+        beat={{ id: beat.id, title: beat.title, bpm: beat.bpm, firstDownbeatSeconds: beat.firstDownbeatSeconds }}
         beatBuffer={beatAudio.buffer}
         onDiscard={() => {
           setDraft(null);

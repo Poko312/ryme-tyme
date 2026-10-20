@@ -45,6 +45,17 @@ export async function getSaveStatus(): Promise<SaveStatus | null> {
   };
 }
 
+const rangeSchema = z.object({ start: z.number().min(0).max(400), end: z.number().min(0).max(400) });
+
+/** Shape check for editor settings (the client normalises them; this guards the database). */
+const editsSchema = z.object({
+  version: z.literal(1),
+  trim: rangeSchema.nullable(),
+  cuts: z.array(rangeSchema).max(20),
+  mix: z.object({ vocalGain: z.number().min(0).max(2), beatGain: z.number().min(0).max(1.5) }),
+  effects: z.object({ reverb: z.number().min(0).max(1), echo: z.number().min(0).max(1) }),
+});
+
 const wordSchema = z.object({
   word: z.string().min(1).max(40),
   bar: z.number().int().min(0).max(10_000),
@@ -66,6 +77,7 @@ const createSchema = z.object({
     theme: z.string().max(20),
     rhymeHints: z.boolean(),
   }),
+  edits: editsSchema.nullable(),
 });
 
 export type CreateRecordingInput = z.infer<typeof createSchema>;
@@ -94,6 +106,7 @@ export async function createRecording(input: CreateRecordingInput): Promise<Crea
       latency_seconds: Math.round(r.latencySeconds * 10000) / 10000,
       word_sequence: r.wordSequence,
       session_settings: r.sessionSettings,
+      ...(r.edits ? { edits: r.edits } : {}),
     })
     .select("id")
     .single();
@@ -101,6 +114,7 @@ export async function createRecording(input: CreateRecordingInput): Promise<Crea
   if (error) {
     await supabase.storage.from("recordings").remove([r.vocalPath]);
     if (isSaveLimitError(error)) return { ok: false, error: "Save limit reached.", limitReached: true };
+    if (error.code === "42703") return { ok: false, error: "The database needs the step 5 update (SETUP.md → “Step 5”)." };
     console.error("[recordings] insert failed", error);
     return { ok: false, error: "Couldn't save. Try again." };
   }
@@ -134,11 +148,15 @@ export async function renameRecording(id: string, title: string): Promise<{ ok: 
 }
 
 export interface PlaybackInfo {
+  title: string;
   vocalUrl: string;
   beatUrl: string;
+  bpm: number;
   beatFirstDownbeat: number;
   vocalOffset: number;
   words: { word: string; time: number }[];
+  /** Raw saved edits (normalise with lib/editing before use). */
+  edits: unknown;
 }
 
 /** Signed URLs + sync info to play one of the viewer's recordings. */
@@ -148,7 +166,7 @@ export async function getPlayback(id: string): Promise<PlaybackInfo | null> {
   const supabase = await createClient();
   const { data: rec } = await supabase
     .from("recordings")
-    .select("vocal_path, vocal_offset_seconds, word_sequence, beat_id")
+    .select("title, vocal_path, vocal_offset_seconds, word_sequence, beat_id, edits")
     .eq("id", id)
     .eq("user_id", viewer.id)
     .maybeSingle();
@@ -157,7 +175,7 @@ export async function getPlayback(id: string): Promise<PlaybackInfo | null> {
   // The beat may since have been hidden or made Premium; the owner can still hear their recording.
   const { data: beat } = await createAdminClient()
     .from("beats")
-    .select("id, audio_path, first_downbeat_seconds")
+    .select("id, audio_path, bpm, first_downbeat_seconds")
     .eq("id", rec.beat_id)
     .maybeSingle();
   if (!beat) return null;
@@ -169,10 +187,36 @@ export async function getPlayback(id: string): Promise<PlaybackInfo | null> {
   if (!vocal?.signedUrl || !beatUrls[beat.id as string]) return null;
 
   return {
+    title: rec.title as string,
     vocalUrl: vocal.signedUrl,
     beatUrl: beatUrls[beat.id as string],
+    bpm: Number(beat.bpm),
+    edits: rec.edits ?? null,
     beatFirstDownbeat: Number(beat.first_downbeat_seconds),
     vocalOffset: Number(rec.vocal_offset_seconds),
     words: ((rec.word_sequence ?? []) as { word: string; time: number }[]).map((w) => ({ word: w.word, time: Number(w.time) })),
   };
+}
+
+/** Saves editor settings for one of the viewer's recordings (null = back to the original). */
+export async function saveRecordingEdits(id: string, edits: unknown): Promise<{ ok: boolean; error?: string }> {
+  const viewer = await getViewer();
+  if (!viewer || !z.uuid().safeParse(id).success) return { ok: false, error: "Not allowed." };
+  const parsed = editsSchema.nullable().safeParse(edits);
+  if (!parsed.success) return { ok: false, error: "Those edits look invalid. Try resetting them." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("recordings")
+    .update({ edits: parsed.data })
+    .eq("id", id)
+    .eq("user_id", viewer.id)
+    .select("id");
+  if (error) {
+    if (error.code === "42703") return { ok: false, error: "The database needs the step 5 update (SETUP.md → “Step 5”)." };
+    console.error("[recordings] save edits failed", error);
+    return { ok: false, error: "Couldn't save your edits. Try again." };
+  }
+  if (!data?.length) return { ok: false, error: "Recording not found." };
+  revalidatePath("/recordings");
+  return { ok: true };
 }
