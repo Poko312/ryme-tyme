@@ -2,11 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireViewer } from "@/auth/viewer";
 import { buttonClass } from "@/components/ui";
+import { getFreestyleSettings } from "@/session/preferences";
+import { FreestyleSettingsSection } from "@/session/SettingsSection";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const viewer = await requireViewer();
+  const freestyle = await getFreestyleSettings(viewer.id);
 
   return (
     <div className="flex flex-col gap-6">
@@ -32,8 +35,10 @@ export default async function SettingsPage() {
         <Link href="/admin" className={buttonClass("secondary", "w-full")}>Admin tools</Link>
       )}
 
+      <FreestyleSettingsSection initial={freestyle} />
+
       <p className="rounded-2xl border-2 border-dashed border-line p-5 text-dim">
-        Freestyle settings and latency calibration arrive in steps 3 and 4.
+        Headphone timing calibration arrives in step 4.
       </p>
 
       <form action="/auth/signout" method="post">

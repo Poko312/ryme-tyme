@@ -46,7 +46,9 @@ Track which step is current in the "Status" section at the bottom of this file.
 lib/              platform-agnostic core logic + tests (import as @lib/...)
 src/app/          routes. (auth)/ = login & signup, (app)/ = signed-in pages with bottom nav
 src/auth/         viewer.ts (getViewer/requireViewer — includes isAdmin/isPremium), safeNext, siteUrl
-src/audio/        browser audio: context.ts (shared AudioContext + iOS unlock), usePreviewPlayer
+src/audio/        browser audio: context.ts (shared AudioContext + iOS unlock), usePreviewPlayer,
+                  freestyleEngine, useBeatBuffer, useWakeLock
+src/session/      freestyle settings form/hook/server action; src/words/ = server word queries
 src/beats/        server-only beat queries + resolveAudioUrls (signed URLs; never send audio_path to the client)
 src/supabase/     server.ts / browser.ts (act as the user), admin.ts (service role), proxy.ts
 src/components/   shared UI (ui.ts has buttonClass/inputClass)
@@ -159,16 +161,23 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 ## Status
 - [x] Step 1 — setup, Supabase, auth (email + Google), schema + RLS, seed (339 words, 8 beats).
       Owner confirmed working on Vercel (email + Google sign-in).
+- [x] Step 2 — beat library (genre/mood filters, 15 s previews via a shared <audio> element),
+      locked premium beats → /upgrade (placeholder page), /freestyle?beat=<id> hand-off,
+      admin beat upload/edit/hide/delete at /admin/beats, 8 generated placeholder beats.
+      Owner confirmed working.
+- [x] Step 3 — freestyle session: lib/timing/beatClock (count-in, word schedule, positionAt),
+      lib/words/picker (shuffle-bag, seeded), lib/session/settings (saved in
+      user_settings.preferences.freestyle). src/audio/freestyleEngine schedules clicks + beat on the
+      AudioContext clock; FreestyleSession reads ctx.currentTime each frame (minus estimated output
+      latency). Pause = ctx.suspend(). Wake lock while running. Awaiting owner test.
+- [ ] Step 4 — recording, latency calibration (replace estimatedOutputLatency with the calibrated
+      value), save limit UI. The word sequence + timing needed for re-sync already exist in
+      FreestyleSession (sequence, timingRef).
+- Admins can play premium beats (treated as premium for access checks).
+- Step numbers changed: the recording editor was added as step 5, so Stripe is now 6,
+  share/clips 7, safety/admin 8, PWA/analytics/launch 9.
+- Analytics events (session_started/session_completed, …) are wired up in step 9.
 
 ## Before launch (don't forget)
 - "Confirm email" is currently OFF in Supabase (built-in mailer timed out). In step 9: set up custom
   SMTP (e.g. Resend), turn Confirm email back on, and apply the SETUP.md Part 5 email template.
-- [x] Step 2 — beat library (genre/mood filters, 15 s previews via a shared <audio> element),
-      locked premium beats → /upgrade (placeholder page), /freestyle?beat=<id> hand-off,
-      admin beat upload/edit/hide/delete at /admin/beats (browser uploads straight to Storage),
-      8 generated placeholder beats. Awaiting owner test.
-- [ ] Step 3 — freestyle session with BPM-synced words (decode beat into an AudioBuffer via
-      /api/beats/[id]/audio; previews use <audio>, but the session must use Web Audio timing)
-- Admins can play premium beats (treated as premium for access checks).
-- Step numbers changed: the recording editor was added as step 5, so Stripe is now 6,
-  share/clips 7, safety/admin 8, PWA/analytics/launch 9.

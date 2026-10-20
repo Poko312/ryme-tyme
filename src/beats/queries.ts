@@ -52,14 +52,3 @@ export async function listPublishedBeats(): Promise<BeatRecord[]> {
   if (error) throw new Error(`Couldn't load beats: ${error.message}`);
   return (data as BeatRow[]).map(toBeat);
 }
-
-export async function getPublishedBeat(id: string): Promise<BeatRecord | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("beats")
-    .select(BEAT_COLUMNS)
-    .eq("id", id)
-    .eq("is_published", true)
-    .maybeSingle();
-  return data ? toBeat(data as BeatRow) : null;
-}
