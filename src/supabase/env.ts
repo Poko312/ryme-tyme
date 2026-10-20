@@ -8,8 +8,17 @@ function required(name: string, value: string | undefined): string {
 }
 
 // NEXT_PUBLIC_* values must be referenced literally so Next.js can inline them in the browser bundle.
-export const supabaseUrl = () =>
-  required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
+// Keep only the origin, so a pasted ".../rest/v1/" endpoint or trailing slash still works.
+export const supabaseUrl = () => {
+  const raw = required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL).trim();
+  try {
+    return new URL(raw).origin;
+  } catch {
+    throw new Error(
+      `NEXT_PUBLIC_SUPABASE_URL isn't a valid URL. It should look like https://abcd1234.supabase.co`,
+    );
+  }
+};
 
 export const supabasePublishableKey = () =>
   required("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
