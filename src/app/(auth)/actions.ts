@@ -78,11 +78,21 @@ export async function continueWithGoogle(formData: FormData): Promise<void> {
 }
 
 function friendlyAuthError(message: string): string {
+  console.error("[supabase] auth failed", message);
   const m = message.toLowerCase();
   if (m.includes("invalid login credentials")) return "Wrong email or password.";
   if (m.includes("email not confirmed")) return "Confirm your email first — check your inbox for the link.";
   if (m.includes("already registered")) return "That email already has an account. Try logging in.";
   if (m.includes("rate limit")) return "Too many attempts. Wait a minute and try again.";
+  if (m.includes("error sending") || m.includes("sending confirmation")) {
+    return "Supabase couldn't send the confirmation email. See SETUP.md Part 5 (email limits) — test with the email you used to sign up to Supabase.";
+  }
+  if (m.includes("database error saving new user")) {
+    return "The database rejected the new account. Re-run the SQL from SETUP.md Part 1, then try again.";
+  }
+  if (m.includes("signups not allowed") || m.includes("signup is disabled")) {
+    return "Sign-ups are turned off in Supabase (Authentication → Sign In / Providers → Allow new users to sign up).";
+  }
   if (m.includes("password")) return message;
-  return "Something went wrong. Try again.";
+  return `Sign-up/login failed: ${message}`;
 }
