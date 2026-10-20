@@ -140,5 +140,10 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 - Testing happens on the Vercel deployment (auto-deploys from `main`), including on iPhone
 
 ## Status
-- [x] Step 1 — setup, Supabase, auth (email + Google), schema + RLS, seed (339 words, 8 beats)
+- [x] Step 1 — setup, Supabase, auth (email + Google), schema + RLS, seed (339 words, 8 beats).
+      Owner confirmed working on Vercel (email + Google sign-in).
+
+## Before launch (don't forget)
+- "Confirm email" is currently OFF in Supabase (built-in mailer timed out). In step 8: set up custom
+  SMTP (e.g. Resend), turn Confirm email back on, and apply the SETUP.md Part 5 email template.
 - [ ] Step 2 — beat library and player (generate placeholder audio with ffmpeg first)
