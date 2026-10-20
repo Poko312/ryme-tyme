@@ -14,7 +14,10 @@ The owner is not an experienced developer. When they must do something by hand (
 get API keys, set env vars, test on an iPhone), give exact numbered steps.
 
 ## Tech stack
-- **Next.js (App Router) + TypeScript (strict) + Tailwind CSS**
+- **Next.js 16 (App Router) + TypeScript (strict) + Tailwind CSS v4** — Next 16 differs from older
+  versions: read `node_modules/next/dist/docs/` before using unfamiliar APIs (see AGENTS.md).
+  `middleware` is now `src/proxy.ts`; `cookies()`, `headers()`, `params`, `searchParams` are async.
+  Cache Components is deliberately **off** (next.config.ts).
 - **Supabase**: auth (email + Google), Postgres, Storage (audio files). Row Level Security on every table.
 - **Stripe**: Checkout (monthly Premium), webhook for subscription status, Customer Portal
 - **Web Audio API** for beat playback and timing; **MediaRecorder API** for vocal recording
@@ -36,6 +39,18 @@ get API keys, set env vars, test on an iPhone), give exact numbered steps.
 Track which step is current in the "Status" section at the bottom of this file.
 
 ## Architecture & conventions
+
+### Layout
+```
+lib/              platform-agnostic core logic + tests (import as @lib/...)
+src/app/          routes. (auth)/ = login & signup, (app)/ = signed-in pages with bottom nav
+src/auth/         viewer.ts (getViewer/requireViewer), safeNext, siteUrl
+src/supabase/     server.ts / browser.ts (act as the user), admin.ts (service role), proxy.ts
+src/components/   shared UI (ui.ts has buttonClass/inputClass)
+supabase/         migrations/*.sql, seed.sql (GENERATED), make-admin.sql
+scripts/          generate-seed.ts (npm run db:seed:generate)
+SETUP.md          owner's step-by-step setup guide — update it when setup changes
+```
 
 ### `/lib` is platform-agnostic
 Core logic lives in `/lib` and must contain **no browser, DOM, Next.js, or React code**, so it can
@@ -64,14 +79,24 @@ Functions in `/lib` take time as plain numbers (seconds) — never call `AudioCo
 
 ### Database
 - Supabase migrations in `supabase/migrations/` (SQL, numbered). Seed data in `supabase/seed.sql`.
-- Tables: `profiles`, `beats`, `words`, `recordings`, `subscriptions`, `reports`, `blocks`
-  (future: `battles`, `battle_rounds`, `votes`).
+- Tables: `profiles` (public identity), `user_settings` (private: is_admin, age_confirmed_at,
+  preferences), `beats`, `words`, `recordings`, `subscriptions`, `payment_customers`, `reports`,
+  `blocks` (future: `battles`, `battle_rounds`, `votes`).
+- The owner applies migrations by pasting them into the Supabase SQL Editor (see SETUP.md), so
+  every new migration must be a **new file** that is safe to run once, plus a note to the owner.
+- Column-level grants restrict what users may update (e.g. only `recordings.title/is_public`).
+  Usernames change only through the `complete_onboarding()` RPC.
+- Storage buckets `beats` and `recordings` are private; audio is served via signed URLs.
+- Seed words live in `lib/words/starterWords.ts`; regenerate `supabase/seed.sql` after edits.
+- To test SQL locally there's no Docker: start Postgres 16 from `/usr/lib/postgresql/16/bin`
+  as the `postgres` user with small stubs for `auth.users`, `auth.uid()`, `storage.*`, and roles.
 - RLS enabled on **every** table. Writes that need elevated rights (Stripe webhook, admin actions)
   use the service-role key **only on the server**.
 - The free save limit is **enforced in the database** (trigger/policy on `recordings` insert), not only in UI.
 - Reports and other references to content use a polymorphic-friendly shape
   (`target_type` + `target_id`) so future battle content can be reported without schema changes.
-- Admin = `profiles.is_admin = true`, checked server-side and in RLS.
+- Admin = `user_settings.is_admin = true` (set via supabase/make-admin.sql), checked with
+  `public.is_admin()` in RLS and `getViewer().isAdmin` on the server.
 
 ### Code style
 - TypeScript strict; no `any` without a comment explaining why.
@@ -102,5 +127,18 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 `paywall_viewed`, `upgrade_clicked`, `subscription_started`, `share_link_created`,
 `clip_downloaded`, `share_page_visited`. Define them once as a typed union in `/lib/analytics`.
 
+## Owner decisions (agreed defaults)
+- Admin account: jnluongo250@gmail.com
+- Premium: $4.99/month, no free trial
+- Free starter pack: 5 beats (other beats premium)
+- Placeholder beats: generated drum loops in `public/placeholder-beats/` (flagged `is_placeholder`)
+- Recordings private by default; public once the user shares (share_slug assigned automatically)
+- Max recording length: the beat's length, capped at 5 minutes
+- Strongly prompt users to wear headphones before recording
+- Prompt words are clean (no profanity/slurs/violence) — users can be 13
+- Free users can create share pages and download watermarked clips
+- Testing happens on the Vercel deployment (auto-deploys from `main`), including on iPhone
+
 ## Status
-- [ ] Step 1 — not started (plan agreed, awaiting owner's answers)
+- [x] Step 1 — setup, Supabase, auth (email + Google), schema + RLS, seed (339 words, 8 beats)
+- [ ] Step 2 — beat library and player (generate placeholder audio with ffmpeg first)
