@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireViewer } from "@/auth/viewer";
 import { buttonClass } from "@/components/ui";
 import { getFreestyleSettings } from "@/session/preferences";
+import { CalibrationStatus } from "@/session/CalibrationStatus";
 import { FreestyleSettingsSection } from "@/session/SettingsSection";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -37,9 +38,7 @@ export default async function SettingsPage() {
 
       <FreestyleSettingsSection initial={freestyle} />
 
-      <p className="rounded-2xl border-2 border-dashed border-line p-5 text-dim">
-        Headphone timing calibration arrives in step 4.
-      </p>
+      <CalibrationStatus />
 
       <form action="/auth/signout" method="post">
         <button type="submit" className={buttonClass("secondary", "w-full")}>Log out</button>

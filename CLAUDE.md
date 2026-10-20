@@ -48,7 +48,10 @@ src/app/          routes. (auth)/ = login & signup, (app)/ = signed-in pages wit
 src/auth/         viewer.ts (getViewer/requireViewer — includes isAdmin/isPremium), safeNext, siteUrl
 src/audio/        browser audio: context.ts (shared AudioContext + iOS unlock), usePreviewPlayer,
                   freestyleEngine, useBeatBuffer, useWakeLock
-src/session/      freestyle settings form/hook/server action; src/words/ = server word queries
+src/session/      freestyle settings form/hook/server action, CalibrationStatus; src/words/ = server word queries
+src/recording/    microphone.ts, markerRecorder.ts (MediaRecorder + sync marker), latencyStore.ts (localStorage)
+src/recordings/   server actions: getSaveStatus, createRecording, deleteRecording, renameRecording, getPlayback
+src/audio/mixPlayer.ts  plays beat + vocal in sync on the beat timeline (review, Recordings page, later editor/share)
 src/beats/        server-only beat queries + resolveAudioUrls (signed URLs; never send audio_path to the client)
 src/supabase/     server.ts / browser.ts (act as the user), admin.ts (service role), proxy.ts
 src/components/   shared UI (ui.ts has buttonClass/inputClass)
@@ -170,9 +173,19 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
       user_settings.preferences.freestyle). src/audio/freestyleEngine schedules clicks + beat on the
       AudioContext clock; FreestyleSession reads ctx.currentTime each frame (minus estimated output
       latency). Pause = ctx.suspend(). Wake lock while running. Awaiting owner test.
-- [ ] Step 4 — recording, latency calibration (replace estimatedOutputLatency with the calibrated
-      value), save limit UI. The word sequence + timing needed for re-sync already exist in
-      FreestyleSession (sequence, timingRef).
+- [x] Step 4 — recording: Record toggle + mic explainer; MarkerRecorder records mic through the
+      AudioContext with MediaRecorder (AAC/mp4 preferred, WebM fallback; no LGPL encoders) and stamps a
+      3 kHz marker at a known context time, so file time ↔ audio clock is exact (loopback test: constant
+      ~20 ms browser mic-path delay, zero jitter — absorbed by calibration). Vocal offset =
+      lib/recording/sync. Calibration (/settings/calibrate): 4 lead + 8 clicks at 80 BPM, user claps,
+      lib/latency estimates round trip (median); stored per mic label in localStorage; words displayed
+      with roundTrip/2. Review screen: waveform, play, ±300 ms sync nudge, title, Save/Discard.
+      No pausing while recording (backgrounding ends the take). Save = getSaveStatus → upload to
+      recordings/<uid>/<uuid>.<ext> → createRecording; limit → SaveLimitModal (delete one / upgrade).
+      Recordings page: play/rename/delete + "x of 3 free saves". Awaiting owner test.
+- [ ] Step 5 — recording editor (needs a migration adding recordings.edits jsonb + grant update).
+- Check in step 7: recordings made in Chrome on Linux/Firefox are WebM or Opus-in-MP4; verify they
+  play on iPhone Safari share pages, else transcode or prefer another format.
 - Admins can play premium beats (treated as premium for access checks).
 - Step numbers changed: the recording editor was added as step 5, so Stripe is now 6,
   share/clips 7, safety/admin 8, PWA/analytics/launch 9.

@@ -26,3 +26,12 @@ export async function unlockAudio(): Promise<AudioContext> {
   if (ctx.state !== "running") await ctx.resume();
   return ctx;
 }
+
+/**
+ * iPhone Safari 17+: "play-and-record" while the mic is open, "playback" otherwise (so audio keeps
+ * playing with the silent switch on). Other browsers ignore this.
+ */
+export function setAudioSessionMode(mode: "playback" | "play-and-record") {
+  const nav = navigator as AudioSessionNavigator;
+  if (nav.audioSession) nav.audioSession.type = mode;
+}

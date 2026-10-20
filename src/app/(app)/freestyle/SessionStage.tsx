@@ -21,6 +21,7 @@ export function SessionStage({
   totalBars,
   progressRef,
   paused,
+  recording,
   onPause,
   onResume,
   onStop,
@@ -33,6 +34,7 @@ export function SessionStage({
   totalBars: number;
   progressRef: RefObject<HTMLDivElement | null>;
   paused: boolean;
+  recording: boolean;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -47,7 +49,14 @@ export function SessionStage({
     // Full-screen overlay (covers the bottom nav so it can't be tapped mid-verse).
     <div className="fixed inset-0 z-50 flex flex-col bg-ink px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-safe">
       <header className="flex items-center justify-between gap-3 text-sm font-bold uppercase tracking-widest text-dim">
-        <span className="truncate">{beatTitle} · {Math.round(bpm)} BPM</span>
+        <span className="flex min-w-0 items-center gap-2">
+          {recording && (
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-hot px-2 py-0.5 text-xs text-white">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" aria-hidden="true" /> Rec
+            </span>
+          )}
+          <span className="truncate">{beatTitle} · {Math.round(bpm)} BPM</span>
+        </span>
         <span className={`shrink-0 tabular-nums ${paused ? "text-hot" : ""}`}>
           {paused ? "Paused" : countingIn ? "Count-in" : `Bar ${Math.min(totalBars, (display?.bar ?? 0) + 1)}/${totalBars}`}
         </span>
@@ -102,8 +111,9 @@ export function SessionStage({
           <div ref={progressRef} className="h-full w-full origin-left rounded-full bg-hot" style={{ transform: "scaleX(0)" }} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {paused ? (
+        <div className={`grid gap-3 ${recording ? "grid-cols-1" : "grid-cols-2"}`}>
+          {/* No pause while recording: the take would need re-syncing after a gap. */}
+          {recording ? null : paused ? (
             <button type="button" onClick={onResume} className="min-h-16 rounded-2xl bg-gold font-display text-2xl uppercase text-ink active:scale-[0.98]">
               Resume
             </button>
@@ -113,7 +123,7 @@ export function SessionStage({
             </button>
           )}
           <button type="button" onClick={onStop} className="min-h-16 rounded-2xl bg-hot font-display text-2xl uppercase text-white active:scale-[0.98]">
-            Stop
+            {recording ? "Stop recording" : "Stop"}
           </button>
         </div>
       </div>

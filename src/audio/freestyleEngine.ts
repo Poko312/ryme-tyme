@@ -5,6 +5,7 @@ import {
   type SessionTiming,
   type WordEveryBars,
 } from "@lib/timing/beatClock";
+import { scheduleClick } from "./click";
 
 export interface EngineBeat {
   bpm: number;
@@ -47,7 +48,7 @@ export class FreestyleEngine {
     this.stop();
     const ctx = this.ctx;
 
-    countInClickTimes(timing).forEach((at, i) => this.scheduleClick(at, i % timing.beatsPerBar === 0));
+    this.clicks = countInClickTimes(timing).map((at, i) => scheduleClick(ctx, at, i % timing.beatsPerBar === 0));
 
     const source = ctx.createBufferSource();
     source.buffer = this.buffer;
@@ -80,19 +81,6 @@ export class FreestyleEngine {
       osc.disconnect();
     }
     this.clicks = [];
-  }
-
-  private scheduleClick(at: number, accent: boolean) {
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.frequency.value = accent ? 1600 : 1000;
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(accent ? 0.7 : 0.45, at + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.06);
-    osc.connect(gain).connect(this.ctx.destination);
-    osc.start(at);
-    osc.stop(at + 0.08);
-    this.clicks.push(osc);
   }
 }
 
