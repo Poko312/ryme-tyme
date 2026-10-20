@@ -31,10 +31,11 @@ get API keys, set env vars, test on an iPhone), give exact numbered steps.
 2. Beat library and beat player
 3. Freestyle session with BPM-synced words
 4. Recording, latency calibration, save limit
-5. Stripe Premium and paywall
-6. Share pages and video clip export
-7. Reporting, blocking, admin page
-8. PWA setup, analytics, deployment to Vercel
+5. Recording editor: trim, cut middle sections, volume balance, effects (reverb/echo)
+6. Stripe Premium and paywall
+7. Share pages and video clip export
+8. Reporting, blocking, admin page
+9. PWA setup, analytics, deployment to Vercel
 
 Track which step is current in the "Status" section at the bottom of this file.
 
@@ -59,6 +60,7 @@ be reused in a future React Native/Expo app. This includes:
 - `lib/words/` — word selection (difficulty, theme, no-repeat logic); takes an injectable RNG
 - `lib/limits/` — save-limit rules (free = 3 saves; premium = unlimited)
 - `lib/latency/` — calibration math (tap offsets → latency estimate)
+- `lib/editing/` — edit list → playback segments, bar snapping for cuts, word-sequence remapping
 - `lib/payments/` — payment provider interface; Stripe implementation behind it so it can be
   swapped for in-app purchases on mobile
 - `lib/analytics/` — typed event names + a thin interface; PostHog adapter lives outside `/lib/core`
@@ -76,6 +78,18 @@ Functions in `/lib` take time as plain numbers (seconds) — never call `AudioCo
 - Recordings store: vocal file, `beat_id`, the word sequence with bar positions, the
   vocal start offset relative to beat start, and the measured latency used — enough to re-sync on playback.
 - AudioContext must be created/resumed inside a user gesture (iOS Safari requirement).
+
+### Recording editor (non-destructive)
+- The original vocal file is never modified. Edits are stored as JSON on the recording
+  (`recordings.edits`, added by a new migration in step 5) with a `version` field, e.g.
+  `{ version: 1, trim: {start, end}, cuts: [{start, end}], mix: {vocalGain, beatGain},
+  effects: {reverb, echo} }`. All times are on the **beat timeline**, so trimming/cutting moves
+  beat, vocals, and prompt words together and keeps them in sync.
+- Cuts snap to bar lines so the beat never stumbles; apply a ~10 ms crossfade at each cut.
+- One shared Web Audio graph builder (gain → reverb ConvolverNode / echo DelayNode) is used for
+  the editor, the share page, and OfflineAudioContext video export, so they all sound the same.
+- Editing is available before saving (review screen) and after (Recordings page); "reset" clears edits.
+  Editing does not count against the save limit.
 
 ### Database
 - Supabase migrations in `supabase/migrations/` (SQL, numbered). Seed data in `supabase/seed.sql`.
@@ -137,6 +151,7 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 - Strongly prompt users to wear headphones before recording
 - Prompt words are clean (no profanity/slurs/violence) — users can be 13
 - Free users can create share pages and download watermarked clips
+- Recording editor: trim, cut middle parts, volume balance, reverb/echo — before and after saving
 - Testing happens on the Vercel deployment (auto-deploys from `main`), including on iPhone
 
 ## Status
@@ -144,6 +159,8 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
       Owner confirmed working on Vercel (email + Google sign-in).
 
 ## Before launch (don't forget)
-- "Confirm email" is currently OFF in Supabase (built-in mailer timed out). In step 8: set up custom
+- "Confirm email" is currently OFF in Supabase (built-in mailer timed out). In step 9: set up custom
   SMTP (e.g. Resend), turn Confirm email back on, and apply the SETUP.md Part 5 email template.
 - [ ] Step 2 — beat library and player (generate placeholder audio with ffmpeg first)
+- Step numbers changed: the recording editor was added as step 5, so Stripe is now 6,
+  share/clips 7, safety/admin 8, PWA/analytics/launch 9.
