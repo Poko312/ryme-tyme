@@ -8,6 +8,7 @@ export interface Viewer {
   email: string | null;
   username: string | null;
   isAdmin: boolean;
+  isPremium: boolean;
   ageConfirmed: boolean;
 }
 
@@ -19,9 +20,10 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const [{ data: profile }, { data: settings }] = await Promise.all([
+  const [{ data: profile }, { data: settings }, { data: isPremium }] = await Promise.all([
     supabase.from("profiles").select("username").eq("id", user.id).maybeSingle(),
     supabase.from("user_settings").select("is_admin, age_confirmed_at").eq("user_id", user.id).maybeSingle(),
+    supabase.rpc("is_premium", { uid: user.id }),
   ]);
 
   return {
@@ -29,6 +31,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     email: user.email ?? null,
     username: profile?.username ?? null,
     isAdmin: settings?.is_admin ?? false,
+    isPremium: isPremium === true,
     ageConfirmed: Boolean(settings?.age_confirmed_at),
   };
 });

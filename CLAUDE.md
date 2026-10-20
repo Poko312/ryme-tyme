@@ -45,11 +45,13 @@ Track which step is current in the "Status" section at the bottom of this file.
 ```
 lib/              platform-agnostic core logic + tests (import as @lib/...)
 src/app/          routes. (auth)/ = login & signup, (app)/ = signed-in pages with bottom nav
-src/auth/         viewer.ts (getViewer/requireViewer), safeNext, siteUrl
+src/auth/         viewer.ts (getViewer/requireViewer — includes isAdmin/isPremium), safeNext, siteUrl
+src/audio/        browser audio: context.ts (shared AudioContext + iOS unlock), usePreviewPlayer
+src/beats/        server-only beat queries + resolveAudioUrls (signed URLs; never send audio_path to the client)
 src/supabase/     server.ts / browser.ts (act as the user), admin.ts (service role), proxy.ts
 src/components/   shared UI (ui.ts has buttonClass/inputClass)
 supabase/         migrations/*.sql, seed.sql (GENERATED), make-admin.sql
-scripts/          generate-seed.ts (npm run db:seed:generate)
+scripts/          generate-seed.ts (npm run db:seed:generate), generate-placeholder-beats.ts (ffmpeg)
 SETUP.md          owner's step-by-step setup guide — update it when setup changes
 ```
 
@@ -161,6 +163,12 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 ## Before launch (don't forget)
 - "Confirm email" is currently OFF in Supabase (built-in mailer timed out). In step 9: set up custom
   SMTP (e.g. Resend), turn Confirm email back on, and apply the SETUP.md Part 5 email template.
-- [ ] Step 2 — beat library and player (generate placeholder audio with ffmpeg first)
+- [x] Step 2 — beat library (genre/mood filters, 15 s previews via a shared <audio> element),
+      locked premium beats → /upgrade (placeholder page), /freestyle?beat=<id> hand-off,
+      admin beat upload/edit/hide/delete at /admin/beats (browser uploads straight to Storage),
+      8 generated placeholder beats. Awaiting owner test.
+- [ ] Step 3 — freestyle session with BPM-synced words (decode beat into an AudioBuffer via
+      /api/beats/[id]/audio; previews use <audio>, but the session must use Web Audio timing)
+- Admins can play premium beats (treated as premium for access checks).
 - Step numbers changed: the recording editor was added as step 5, so Stripe is now 6,
   share/clips 7, safety/admin 8, PWA/analytics/launch 9.

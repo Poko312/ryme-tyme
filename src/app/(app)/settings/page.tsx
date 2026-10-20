@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requireViewer } from "@/auth/viewer";
 import { buttonClass } from "@/components/ui";
 
@@ -26,6 +27,10 @@ export default async function SettingsPage() {
           )}
         </dl>
       </section>
+
+      {viewer.isAdmin && (
+        <Link href="/admin" className={buttonClass("secondary", "w-full")}>Admin tools</Link>
+      )}
 
       <p className="rounded-2xl border-2 border-dashed border-line p-5 text-dim">
         Freestyle settings and latency calibration arrive in steps 3 and 4.
