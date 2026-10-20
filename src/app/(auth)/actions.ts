@@ -5,6 +5,7 @@ import { z } from "zod";
 import { USERNAME_PROBLEM_MESSAGES, normalizeUsername, validateUsername } from "@lib/account/username";
 import { safeNext } from "@/auth/safeNext";
 import { getSiteUrl } from "@/auth/siteUrl";
+import { describeSupabaseError } from "@/supabase/errors";
 import { createClient } from "@/supabase/server";
 
 export interface AuthFormState {
@@ -32,7 +33,7 @@ export async function signUp(_prev: AuthFormState, formData: FormData): Promise<
 
   const supabase = await createClient();
   const { data: available, error: rpcError } = await supabase.rpc("is_username_available", { name: username });
-  if (rpcError) return { error: "Couldn't reach the server. Try again." };
+  if (rpcError) return { error: describeSupabaseError("is_username_available", rpcError) };
   if (!available) return { error: "That username is taken. Try another." };
 
   const siteUrl = await getSiteUrl();

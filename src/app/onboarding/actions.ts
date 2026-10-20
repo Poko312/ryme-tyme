@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { USERNAME_PROBLEM_MESSAGES, normalizeUsername, validateUsername } from "@lib/account/username";
+import { describeSupabaseError } from "@/supabase/errors";
 import { createClient } from "@/supabase/server";
 
 export interface OnboardingState {
@@ -22,7 +23,7 @@ export async function completeOnboarding(_prev: OnboardingState, formData: FormD
   if (error) {
     if (error.message.includes("USERNAME_UNAVAILABLE")) return { error: "That username is taken. Try another." };
     if (error.message.includes("NOT_AUTHENTICATED")) redirect("/login");
-    return { error: "Something went wrong. Try again." };
+    return { error: describeSupabaseError("complete_onboarding", error) };
   }
 
   redirect("/home");
