@@ -103,6 +103,15 @@ Functions in `/lib` take time as plain numbers (seconds) — never call `AudioCo
 - Effects: reverb, echo, and a vocal `tone` (clean/phone/radio: drive → highpass → lowpass, settings
   in lib/editing/presets TONE_SETTINGS). One-tap presets (Clean, Studio, Stadium, Phone call, Radio,
   Dub echo) set effects only; sliders fine-tune ("Custom"). Old saved edits without `tone` = clean.
+- **Overdub layers** (owner decision): extra vocal takes on the owner's own *saved* recordings,
+  table `recording_layers` (migration 20261022000000). Free: 1 layer per recording, Premium: 4
+  (lib/limits/layers.ts ↔ public.layer_limit(), enforced by trigger). Layers don't count against the
+  save limit; files at recordings/<uid>/layers/… (storage policy allows these even at 3/3 saves).
+  Recorded from /recordings/[id]/edit (LayersSection): mix plays *un-cut* while recording, offset =
+  lib/recording/sync layerOffsetOnBeatTimeline. Layers sit on the beat timeline, so trim/cuts apply;
+  they route through the same effects chain (per-layer gain/mute). Label/gain/muted save immediately.
+- **Premium presets**: Phone call and Radio (any non-clean voice tone) are Premium; locked in the UI
+  and downgraded to clean on the server for free users (enforcePremiumTone in recordings/actions).
 - One shared Web Audio graph builder (gain → reverb ConvolverNode / echo DelayNode) is used for
   the editor, the share page, and OfflineAudioContext video export, so they all sound the same.
 - Editing is available before saving (review screen) and after (Recordings page); "reset" clears edits.
@@ -208,6 +217,9 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
 - Step numbers changed: the recording editor was added as step 5, so Stripe is now 6,
   share/clips 7, safety/admin 8, PWA/analytics/launch 9.
 - Analytics events (session_started/session_completed, …) are wired up in step 9.
+- Step 7 idea (owner liked): show the effect preset on share pages/clips, e.g. "🎙️ Stadium mode".
+- Step 6 must list the Premium perks consistently: full beat library, unlimited saves, no watermark,
+  up to 4 layers per recording, Phone call + Radio presets.
 
 ## Before launch (don't forget)
 - **Privacy policy + terms of service pages** (/privacy, /terms), linked from sign-up, landing footer

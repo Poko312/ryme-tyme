@@ -83,7 +83,11 @@ export function RecordingsList({ items, highlightId }: { items: RecordingItem[];
       try {
         const info = await getPlayback(id);
         if (!info) throw new Error("not found");
-        const [beat, vocal] = await Promise.all([decode(info.beatUrl), decode(info.vocalUrl)]);
+        const [beat, vocal, layers] = await Promise.all([
+          decode(info.beatUrl),
+          decode(info.vocalUrl),
+          Promise.all(info.layers.map(async (l) => ({ id: l.id, offset: l.offset, gain: l.gain, muted: l.muted, buffer: await decode(l.url) }))),
+        ]);
         // Keep memory in check on phones: one decoded recording at a time.
         for (const old of loaded.current.values()) old.player.dispose();
         loaded.current.clear();
@@ -94,7 +98,7 @@ export function RecordingsList({ items, highlightId }: { items: RecordingItem[];
           vocalDuration: vocal.duration,
         };
         const edits = normalizeEdits(info.edits, mixDuration(track), secondsPerBeat(info.bpm));
-        const player = new MixPlayer(ctx, beat, vocal, track, info.bpm, edits);
+        const player = new MixPlayer(ctx, beat, vocal, track, info.bpm, edits, layers);
         l = { player, info };
         loaded.current.set(id, l);
       } catch (err) {

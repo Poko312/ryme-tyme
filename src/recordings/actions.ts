@@ -3,11 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getSaveAllowance, isSaveLimitError } from "@lib/limits/saveLimit";
+import { isPremiumTone } from "@lib/editing/presets";
 import { MAX_RECORDING_SECONDS } from "@lib/recording/sync";
 import { getViewer } from "@/auth/viewer";
 import { resolveAudioUrls } from "@/beats/audioUrls";
 import { createAdminClient } from "@/supabase/admin";
 import { createClient } from "@/supabase/server";
+import type { LayerInfo } from "./layers";
 
 export interface SavedRecordingSummary {
   id: string;
@@ -85,6 +87,14 @@ const createSchema = z.object({
 });
 
 export type CreateRecordingInput = z.infer<typeof createSchema>;
+
+type EditsInput = z.infer<typeof editsSchema>;
+
+/** Phone call / Radio voice tones are Premium: free users' edits fall back to the clean voice. */
+function enforcePremiumTone(edits: EditsInput | null, premium: boolean): EditsInput | null {
+  if (!edits || premium || !edits.effects.tone || !isPremiumTone(edits.effects.tone)) return edits;
+  return { ...edits, effects: { ...edits.effects, tone: "clean" } };
+}
 export type CreateRecordingResult = { ok: true; id: string } | { ok: false; error: string; limitReached?: boolean };
 
 export async function createRecording(input: CreateRecordingInput): Promise<CreateRecordingResult> {
@@ -92,7 +102,7 @@ export async function createRecording(input: CreateRecordingInput): Promise<Crea
   if (!viewer) return { ok: false, error: "Log in to save recordings." };
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
-  const r = parsed.data;
+  const r = { ...parsed.data, edits: enforcePremiumTone(parsed.data.edits, viewer.isPremium || viewer.isAdmin) };
   // The file must be in the user's own folder (storage rules enforce this too).
   if (!r.vocalPath.startsWith(`${viewer.id}/`)) return { ok: false, error: "Invalid upload." };
 
@@ -132,9 +142,11 @@ export async function deleteRecording(id: string): Promise<{ ok: boolean }> {
   const supabase = await createClient();
   const { data: rec } = await supabase.from("recordings").select("vocal_path").eq("id", id).eq("user_id", viewer.id).maybeSingle();
   if (!rec) return { ok: false };
+  // Layer rows are removed with the recording (cascade); their files need removing too.
+  const { data: layers } = await supabase.from("recording_layers").select("vocal_path").eq("recording_id", id);
   const { error } = await supabase.from("recordings").delete().eq("id", id).eq("user_id", viewer.id);
   if (error) return { ok: false };
-  await supabase.storage.from("recordings").remove([rec.vocal_path as string]);
+  await supabase.storage.from("recordings").remove([rec.vocal_path as string, ...(layers ?? []).map((l) => l.vocal_path as string)]);
   revalidatePath("/recordings");
   return { ok: true };
 }
@@ -161,6 +173,7 @@ export interface PlaybackInfo {
   words: { word: string; time: number }[];
   /** Raw saved edits (normalise with lib/editing before use). */
   edits: unknown;
+  layers: LayerInfo[];
 }
 
 /** Signed URLs + sync info to play one of the viewer's recordings. */
@@ -184,10 +197,22 @@ export async function getPlayback(id: string): Promise<PlaybackInfo | null> {
     .maybeSingle();
   if (!beat) return null;
 
-  const [{ data: vocal }, beatUrls] = await Promise.all([
+  const [{ data: vocal }, beatUrls, { data: layerRows }] = await Promise.all([
     supabase.storage.from("recordings").createSignedUrl(rec.vocal_path as string, 60 * 60),
     resolveAudioUrls([{ id: beat.id as string, audioPath: beat.audio_path as string }]),
+    // Missing table (layers update not run yet) just means no layers.
+    supabase.from("recording_layers").select("id, label, vocal_path, vocal_offset_seconds, gain, muted").eq("recording_id", id).order("created_at"),
   ]);
+  const layerList = layerRows ?? [];
+  const { data: layerUrls } = layerList.length
+    ? await supabase.storage.from("recordings").createSignedUrls(layerList.map((l) => l.vocal_path as string), 60 * 60)
+    : { data: [] };
+  const layers: LayerInfo[] = layerList.flatMap((l, i) => {
+    const url = layerUrls?.[i]?.signedUrl;
+    return url
+      ? [{ id: l.id as string, label: l.label as string, url, offset: Number(l.vocal_offset_seconds), gain: Number(l.gain), muted: Boolean(l.muted) }]
+      : [];
+  });
   if (!vocal?.signedUrl || !beatUrls[beat.id as string]) return null;
 
   return {
@@ -196,6 +221,7 @@ export async function getPlayback(id: string): Promise<PlaybackInfo | null> {
     beatUrl: beatUrls[beat.id as string],
     bpm: Number(beat.bpm),
     edits: rec.edits ?? null,
+    layers,
     beatFirstDownbeat: Number(beat.first_downbeat_seconds),
     vocalOffset: Number(rec.vocal_offset_seconds),
     words: ((rec.word_sequence ?? []) as { word: string; time: number }[]).map((w) => ({ word: w.word, time: Number(w.time) })),
@@ -211,7 +237,7 @@ export async function saveRecordingEdits(id: string, edits: unknown): Promise<{ 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("recordings")
-    .update({ edits: parsed.data })
+    .update({ edits: enforcePremiumTone(parsed.data, viewer.isPremium || viewer.isAdmin) })
     .eq("id", id)
     .eq("user_id", viewer.id)
     .select("id");

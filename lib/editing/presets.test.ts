@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_EDITS } from "./edits";
-import { driveCurve, EFFECT_PRESETS, matchPreset } from "./presets";
+import { driveCurve, EFFECT_PRESETS, isPremiumTone, matchPreset } from "./presets";
 
 describe("effect presets", () => {
   it("has unique ids and valid values", () => {
@@ -29,5 +29,12 @@ describe("driveCurve", () => {
     expect(c[100]).toBeCloseTo(1, 6);
     expect(c[50]).toBeCloseTo(0, 6);
     expect(c[25]).toBeCloseTo(-c[75], 6);
+  });
+});
+
+describe("premium presets", () => {
+  it("locks exactly the presets that use a special voice tone", () => {
+    for (const p of EFFECT_PRESETS) expect(Boolean(p.premium)).toBe(isPremiumTone(p.effects.tone));
+    expect(EFFECT_PRESETS.filter((p) => p.premium).map((p) => p.id)).toEqual(["phone", "radio"]);
   });
 });

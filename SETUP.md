@@ -149,6 +149,7 @@ Supabase → **SQL Editor → + New query** → paste the file's raw contents �
 | Step | File | What it adds |
 |---|---|---|
 | 5 | [`supabase/migrations/20261021000000_recording_edits.sql`](https://github.com/Poko312/ryme-tyme/blob/main/supabase/migrations/20261021000000_recording_edits.sql) | Saved edits (trim, cuts, mix, effects) on recordings |
+| 5b | [`supabase/migrations/20261022000000_recording_layers.sql`](https://github.com/Poko312/ryme-tyme/blob/main/supabase/migrations/20261022000000_recording_layers.sql) | Overdub layers (ad-libs) on recordings, with the free/Premium layer limit |
 
 ---
 

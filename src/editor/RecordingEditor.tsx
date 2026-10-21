@@ -27,6 +27,7 @@ import { MixPlayer } from "@/audio/mixPlayer";
 import { PlayIcon, StopIcon } from "@/components/icons";
 import { vocalTimelineSamples } from "@/components/Waveform";
 import { nowMs } from "./clock";
+import { LayersSection, type EditorLayer, type LayerControls } from "./LayersSection";
 import { EditorTimeline, type EditorMode } from "./EditorTimeline";
 
 const ZOOM_LEVELS = [1, 2, 4, 8] as const;
@@ -51,6 +52,9 @@ export function RecordingEditor({
   words,
   edits,
   onEditsChange,
+  isPremium,
+  layers = [],
+  layerControls = null,
 }: {
   beatBuffer: AudioBuffer;
   vocalBuffer: AudioBuffer;
@@ -60,6 +64,11 @@ export function RecordingEditor({
   words: EditorWord[];
   edits: RecordingEdits;
   onEditsChange: (edits: RecordingEdits) => void;
+  /** Unlocks Premium-only presets (Phone call, Radio). */
+  isPremium: boolean;
+  layers?: EditorLayer[];
+  /** null = layers not available here (e.g. before the take is saved). */
+  layerControls?: LayerControls | null;
 }) {
   const playerRef = useRef<MixPlayer | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -72,6 +81,7 @@ export function RecordingEditor({
   const historyRef = useRef(EMPTY_HISTORY);
   const editsRef = useRef(edits);
   const previewRef = useRef<{ returnTo: number } | null>(null);
+  const [lockedNote, setLockedNote] = useState<string | null>(null);
 
   const bar = secondsPerBar(bpm);
   const beat = secondsPerBeat(bpm);
@@ -90,6 +100,7 @@ export function RecordingEditor({
       { beatFirstDownbeat, beatDuration: beatBuffer.duration, vocalOffset, vocalDuration: vocalBuffer.duration },
       bpm,
       edits,
+      layers,
     );
     player.onEnded = () => {
       const preview = previewRef.current;
@@ -114,6 +125,8 @@ export function RecordingEditor({
   }, [beatBuffer, vocalBuffer, bpm, beatFirstDownbeat]);
 
   useEffect(() => playerRef.current?.setVocalOffset(vocalOffset), [vocalOffset]);
+  useEffect(() => playerRef.current?.setLayers(layers), [layers]);
+
   useEffect(() => {
     editsRef.current = edits;
     playerRef.current?.setEdits(edits);
@@ -349,6 +362,21 @@ export function RecordingEditor({
         )}
       </section>
 
+      {layerControls ? (
+        <LayersSection
+          layers={layers}
+          controls={layerControls}
+          getPlayer={() => playerRef.current}
+          edits={edits}
+          duration={duration}
+          barSeconds={bar}
+        />
+      ) : (
+        <p className="rounded-2xl border-2 border-dashed border-line p-4 text-sm text-dim">
+          🎙 After you save, you can add ad-lib layers on top from <b className="text-fg">Recordings → Edit</b>.
+        </p>
+      )}
+
       <section className="rounded-2xl border-2 border-line bg-panel p-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-dim">Mix</h3>
         <Slider label="Your voice" value={edits.mix.vocalGain} max={2} format={(v) => `${Math.round(v * 100)}%`}
@@ -365,16 +393,26 @@ export function RecordingEditor({
         <div className="mt-3 grid grid-cols-3 gap-2">
           {EFFECT_PRESETS.map((preset) => {
             const active = activePreset?.id === preset.id;
+            const locked = Boolean(preset.premium) && !isPremium;
             return (
               <button key={preset.id} type="button" aria-pressed={active}
-                onClick={() => change({ ...edits, effects: { ...preset.effects } })}
-                className={`flex min-h-16 flex-col items-center justify-center rounded-xl border-2 px-1 text-center transition active:scale-95 ${active ? "border-gold bg-gold text-ink" : "border-line bg-ink"}`}>
-                <span className="text-sm font-black leading-tight">{preset.label}</span>
+                aria-label={locked ? `${preset.label} (Premium)` : undefined}
+                onClick={() => {
+                  if (locked) return setLockedNote(`“${preset.label}” is a Premium sound. Save your take, then go Premium from Settings → Upgrade to unlock it.`);
+                  setLockedNote(null);
+                  change({ ...edits, effects: { ...preset.effects } });
+                }}
+                className={`flex min-h-16 flex-col items-center justify-center rounded-xl border-2 px-1 text-center transition active:scale-95 ${active ? "border-gold bg-gold text-ink" : locked ? "border-line bg-ink opacity-60" : "border-line bg-ink"}`}>
+                <span className="text-sm font-black leading-tight">{locked && "🔒 "}{preset.label}</span>
                 <span className={`text-[11px] leading-tight ${active ? "text-ink/70" : "text-dim"}`}>{preset.hint}</span>
               </button>
             );
           })}
         </div>
+        {lockedNote && <p role="status" className="mt-3 rounded-xl bg-gold/10 px-3 py-2 text-sm text-gold">{lockedNote}</p>}
+        {!isPremium && edits.effects.tone !== "clean" && (
+          <p className="mt-3 rounded-xl bg-gold/10 px-3 py-2 text-sm text-gold">This take uses a Premium voice tone. It will be saved with a clean voice unless you go Premium.</p>
+        )}
         <p className="mt-4 text-xs font-bold uppercase tracking-widest text-dim">Fine-tune</p>
         <Slider label="Reverb" value={edits.effects.reverb} max={1} format={(v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)}
           onChange={(v) => change({ ...edits, effects: { ...edits.effects, reverb: v } })} />

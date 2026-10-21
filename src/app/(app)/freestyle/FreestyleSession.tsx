@@ -27,7 +27,7 @@ import { decodeRecording, findMarker, MarkerRecorder } from "@/recording/markerR
 import { closeMicrophone, MIC_ERROR_MESSAGES, MicError, microphoneLabel, openMicrophone } from "@/recording/microphone";
 import { FreestyleSettingsForm, settingsSummary } from "@/session/FreestyleSettingsForm";
 import { useFreestyleSettings } from "@/session/useFreestyleSettings";
-import { MicExplainer } from "./MicExplainer";
+import { MicExplainer } from "@/recording/MicExplainer";
 import { RecordingReview, type RecordingDraft } from "./RecordingReview";
 import { SessionStage } from "./SessionStage";
 
@@ -70,11 +70,13 @@ export function FreestyleSession({
   audioUrl,
   words,
   initialSettings,
+  isPremium,
 }: {
   beat: SessionBeat;
   audioUrl: string | null;
   words: PromptWord[];
   initialSettings: FreestyleSettings;
+  isPremium: boolean;
 }) {
   const beatAudio = useBeatBuffer(audioUrl);
   const { settings, update, saved } = useFreestyleSettings(initialSettings);
@@ -363,6 +365,7 @@ export function FreestyleSession({
         draft={draft}
         beat={{ id: beat.id, title: beat.title, bpm: beat.bpm, firstDownbeatSeconds: beat.firstDownbeatSeconds }}
         beatBuffer={beatAudio.buffer}
+        isPremium={isPremium}
         onDiscard={() => {
           setDraft(null);
           setStatus("ready");

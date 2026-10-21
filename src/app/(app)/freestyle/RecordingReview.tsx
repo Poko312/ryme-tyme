@@ -31,11 +31,13 @@ export function RecordingReview({
   draft,
   beat,
   beatBuffer,
+  isPremium,
   onDiscard,
 }: {
   draft: RecordingDraft;
   beat: { id: string; title: string; bpm: number; firstDownbeatSeconds: number };
   beatBuffer: AudioBuffer;
+  isPremium: boolean;
   onDiscard: () => void;
 }) {
   const router = useRouter();
@@ -112,6 +114,7 @@ export function RecordingReview({
         words={draft.words}
         edits={edits}
         onEditsChange={setEdits}
+        isPremium={isPremium}
       />
 
       <section className="rounded-2xl border-2 border-line bg-panel p-4">

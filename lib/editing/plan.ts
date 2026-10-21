@@ -7,7 +7,9 @@ export const EDGE_FADE = 0.03;
 export const MIN_FADE = 0.004;
 
 export interface ScheduledClip {
-  track: "beat" | "vocal";
+  track: "beat" | "vocal" | "layer";
+  /** Which overdub layer (index into the `layers` passed in), when track is "layer". */
+  layer?: number;
   /** Seconds after playback starts. */
   delay: number;
   /** Where in the audio file to start. */
@@ -23,8 +25,17 @@ export interface EditedPlan {
   clips: ScheduledClip[];
 }
 
-/** Every beat/vocal clip to play from output time `from`, honouring trim and cuts. */
-export function planEditedPlayback(mix: MixTrack, edits: RecordingEdits, from: number): EditedPlan {
+/** An overdub layer placed on the beat timeline, like the main vocal. */
+export interface LayerTrack {
+  offset: number;
+  duration: number;
+}
+
+/**
+ * Every beat/vocal/layer clip to play from output time `from`, honouring trim and cuts.
+ * Layers sit on the beat timeline, so cuts and trims apply to them exactly as to the main vocal.
+ */
+export function planEditedPlayback(mix: MixTrack, edits: RecordingEdits, from: number, layers: LayerTrack[] = []): EditedPlan {
   const segments = keptSegments(edits, mixDuration(mix));
   const duration = outputDuration(segments);
   const start = Math.max(0, Math.min(from, duration));
@@ -45,15 +56,21 @@ export function planEditedPlayback(mix: MixTrack, edits: RecordingEdits, from: n
 
     clips.push({ track: "beat", delay, fileOffset: mix.beatFirstDownbeat + srcFrom, duration: length, fadeIn, fadeOut });
 
-    const vocalPos = srcFrom - mix.vocalOffset;
-    if (vocalPos >= 0) {
-      if (vocalPos < mix.vocalDuration) {
-        clips.push({ track: "vocal", delay, fileOffset: vocalPos, duration: Math.min(length, mix.vocalDuration - vocalPos), fadeIn, fadeOut });
+    const vocalClip = (offset: number, fileDuration: number): Omit<ScheduledClip, "track"> | null => {
+      const pos = srcFrom - offset;
+      if (pos >= 0) {
+        return pos < fileDuration ? { delay, fileOffset: pos, duration: Math.min(length, fileDuration - pos), fadeIn, fadeOut } : null;
       }
-    } else if (-vocalPos < length) {
-      const wait = -vocalPos;
-      clips.push({ track: "vocal", delay: delay + wait, fileOffset: 0, duration: Math.min(length - wait, mix.vocalDuration), fadeIn: MIN_FADE, fadeOut });
-    }
+      const wait = -pos; // this vocal starts later than the playback point
+      return wait < length ? { delay: delay + wait, fileOffset: 0, duration: Math.min(length - wait, fileDuration), fadeIn: MIN_FADE, fadeOut } : null;
+    };
+
+    const main = vocalClip(mix.vocalOffset, mix.vocalDuration);
+    if (main) clips.push({ track: "vocal", ...main });
+    layers.forEach((layer, index) => {
+      const clip = vocalClip(layer.offset, layer.duration);
+      if (clip) clips.push({ track: "layer", layer: index, ...clip });
+    });
   });
 
   return { duration, clips };

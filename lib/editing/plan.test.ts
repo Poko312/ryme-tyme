@@ -52,3 +52,27 @@ describe("planEditedPlayback", () => {
     expect(planEditedPlayback(mix, DEFAULT_EDITS, 99).clips).toEqual([]);
   });
 });
+
+describe("planEditedPlayback with layers", () => {
+  it("places layers on the beat timeline and splits them at cuts", () => {
+    const edits = { ...DEFAULT_EDITS, cuts: [{ start: 10, end: 14 }] };
+    // Layer starts at beat time 5 and lasts 20 s (covers the cut).
+    const plan = planEditedPlayback(mix, edits, 0, [{ offset: 5, duration: 20 }]);
+    const layerClips = plan.clips.filter((c) => c.track === "layer");
+    expect(layerClips).toEqual([
+      expect.objectContaining({ layer: 0, delay: 5, fileOffset: 0, duration: 5 }), // beat 5–10
+      expect.objectContaining({ layer: 0, delay: 10, fileOffset: 9, duration: 11 }), // beat 14–25
+    ]);
+  });
+
+  it("skips layers that are entirely cut or trimmed away", () => {
+    const plan = planEditedPlayback(mix, { ...DEFAULT_EDITS, trim: { start: 0, end: 8 } }, 0, [{ offset: 20, duration: 5 }]);
+    expect(plan.clips.some((c) => c.track === "layer")).toBe(false);
+  });
+
+  it("keeps the main vocal unchanged when layers are added", () => {
+    const without = planEditedPlayback(mix, DEFAULT_EDITS, 3).clips.filter((c) => c.track !== "layer");
+    const withLayers = planEditedPlayback(mix, DEFAULT_EDITS, 3, [{ offset: 0, duration: 10 }]).clips.filter((c) => c.track !== "layer");
+    expect(withLayers).toEqual(without);
+  });
+});

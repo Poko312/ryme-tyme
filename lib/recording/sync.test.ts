@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionTiming } from "../timing/beatClock";
-import { recordedWordSequence, vocalOffsetOnBeatTimeline } from "./sync";
+import { layerOffsetOnBeatTimeline, recordedWordSequence, vocalOffsetOnBeatTimeline } from "./sync";
 
 describe("vocalOffsetOnBeatTimeline", () => {
   it("maps file time to the beat timeline using the marker, minus latency", () => {
@@ -39,5 +39,21 @@ describe("recordedWordSequence", () => {
   it("includes the first word even if stopped during the count-in", () => {
     expect(recordedWordSequence(words, timing, -1)).toEqual([]);
     expect(recordedWordSequence(words, timing, 0)).toHaveLength(1);
+  });
+});
+
+describe("layerOffsetOnBeatTimeline", () => {
+  it("a sound made exactly on beat time 12 lands at 12", () => {
+    // Playback of beat time 10 started at context 100. Marker at context 99.6, 0.4 s into the file
+    // → file t=0 is context 99.2. Latency 0.15.
+    const offset = layerOffsetOnBeatTimeline({
+      markerContextTime: 99.6,
+      markerFileTime: 0.4,
+      playbackStartContextTime: 100,
+      playbackStartPosition: 10,
+      roundTripLatency: 0.15,
+    });
+    // Performer hits beat 12 when they hear it: context 102 (+ latency) → file time 102.15 − 99.2 = 2.95.
+    expect(2.95 + offset).toBeCloseTo(12, 9);
   });
 });

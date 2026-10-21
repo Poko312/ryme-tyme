@@ -8,6 +8,8 @@ export interface EffectPreset {
   /** One-line description shown under the label. */
   hint: string;
   effects: Effects;
+  /** Premium-only presets are shown locked to free users. */
+  premium?: boolean;
 }
 
 /** One-tap effect settings. Presets only change effects — volume levels stay as the user set them. */
@@ -15,8 +17,8 @@ export const EFFECT_PRESETS: readonly EffectPreset[] = [
   { id: "clean", label: "Clean", hint: "No effects", effects: { reverb: 0, echo: 0, tone: "clean" } },
   { id: "studio", label: "Studio", hint: "A touch of room", effects: { reverb: 0.18, echo: 0, tone: "clean" } },
   { id: "stadium", label: "Stadium", hint: "Huge and echoey", effects: { reverb: 0.8, echo: 0.3, tone: "clean" } },
-  { id: "phone", label: "Phone call", hint: "Lo-fi, tinny", effects: { reverb: 0, echo: 0, tone: "phone" } },
-  { id: "radio", label: "Radio", hint: "Old-school broadcast", effects: { reverb: 0.1, echo: 0, tone: "radio" } },
+  { id: "phone", label: "Phone call", hint: "Lo-fi, tinny", effects: { reverb: 0, echo: 0, tone: "phone" }, premium: true },
+  { id: "radio", label: "Radio", hint: "Old-school broadcast", effects: { reverb: 0.1, echo: 0, tone: "radio" }, premium: true },
   { id: "dub", label: "Dub echo", hint: "Echo on every line", effects: { reverb: 0.25, echo: 0.65, tone: "clean" } },
 ];
 
@@ -55,4 +57,9 @@ export function driveCurve(drive: number, size = 1024): Float32Array | null {
     curve[i] = Math.tanh(k * x) / norm;
   }
   return curve;
+}
+
+/** Voice tones only Premium can use (the Phone call and Radio presets). */
+export function isPremiumTone(tone: VocalTone): boolean {
+  return tone !== "clean";
 }

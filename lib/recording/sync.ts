@@ -43,3 +43,19 @@ export function recordedWordSequence(sequence: PromptWord[], timing: SessionTimi
 function round4(x: number): number {
   return Math.round(x * 10000) / 10000;
 }
+
+/**
+ * Where an overdub layer's file t=0 sits on the beat timeline. While recording a layer the mix plays
+ * un-cut, so audio-clock time maps straight onto the beat timeline from the playback start point.
+ */
+export function layerOffsetOnBeatTimeline(input: {
+  markerContextTime: number;
+  markerFileTime: number;
+  /** Audio-clock time playback started, and the beat-timeline position it started from. */
+  playbackStartContextTime: number;
+  playbackStartPosition: number;
+  roundTripLatency: number;
+}): number {
+  const fileStartContextTime = input.markerContextTime - input.markerFileTime;
+  return input.playbackStartPosition + (fileStartContextTime - input.playbackStartContextTime) - Math.max(0, input.roundTripLatency);
+}

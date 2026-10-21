@@ -55,6 +55,7 @@ export default async function FreestylePage({ searchParams }: PageProps<"/freest
       audioUrl={urls[beat.id] ?? null}
       words={words}
       initialSettings={settings}
+      isPremium={unlocked}
     />
   );
 }
