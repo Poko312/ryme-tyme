@@ -57,7 +57,15 @@ describe("normalizeEdits", () => {
   it("clamps mix and effects", () => {
     const e = normalizeEdits({ mix: { vocalGain: 9, beatGain: -1 }, effects: { reverb: 2, echo: "x" } }, DUR, BAR);
     expect(e.mix).toEqual({ vocalGain: 2, beatGain: 0 });
-    expect(e.effects).toEqual({ reverb: 1, echo: 0 });
+    expect(e.effects).toEqual({ reverb: 1, echo: 0, tone: "clean" });
+  });
+});
+
+describe("vocal tone", () => {
+  it("keeps a valid tone and defaults old/invalid ones to clean", () => {
+    expect(normalizeEdits({ effects: { tone: "phone" } }, DUR, BEAT).effects.tone).toBe("phone");
+    expect(normalizeEdits({ effects: { reverb: 0.2 } }, DUR, BEAT).effects.tone).toBe("clean");
+    expect(normalizeEdits({ effects: { tone: "robot" } }, DUR, BEAT).effects.tone).toBe("clean");
   });
 });
 

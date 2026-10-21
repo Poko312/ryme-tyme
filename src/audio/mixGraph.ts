@@ -1,13 +1,14 @@
 import { generateImpulse } from "@lib/audio/impulse";
 import type { RecordingEdits } from "@lib/editing/edits";
+import { driveCurve, TONE_SETTINGS } from "@lib/editing/presets";
 
 /**
  * The one audio chain used everywhere a recording is played or rendered (review, editor,
  * Recordings page, share page, video export), so edits sound identical in all of them.
  * Works on a live AudioContext and on an OfflineAudioContext.
  *
- *   beatIn ──► beatGain ───────────────────────────────┐
- *   vocalIn ─► vocalGain ─┬──────────────────── dry ───┤
+ *   beatIn ──► beatGain ──────────────────────────────────────────────────────┐
+ *   vocalIn ─► tone (drive → highpass → lowpass) ─► vocalGain ─┬───── dry ───┤
  *                         ├─► reverbSend ─► convolver ─┤──► limiter ──► destination
  *                         └─► echoSend ──► delay ⟲ ────┘
  */
@@ -28,6 +29,13 @@ export function createMixGraph(ctx: BaseAudioContext, destination: AudioNode, bp
   const vocalIn = ctx.createGain();
   const beatGain = ctx.createGain();
   const vocalGain = ctx.createGain();
+  const toneHighpass = ctx.createBiquadFilter();
+  const toneLowpass = ctx.createBiquadFilter();
+  const toneDrive = ctx.createWaveShaper();
+  const toneGain = ctx.createGain();
+  toneHighpass.type = "highpass";
+  toneLowpass.type = "lowpass";
+  toneDrive.oversample = "2x";
   const reverbSend = ctx.createGain();
   const echoSend = ctx.createGain();
   const convolver = ctx.createConvolver();
@@ -53,7 +61,8 @@ export function createMixGraph(ctx: BaseAudioContext, destination: AudioNode, bp
   output.gain.value = 0.85;
 
   beatIn.connect(beatGain).connect(limiter);
-  vocalIn.connect(vocalGain);
+  // Grit first, then band-limit, so the distortion itself is filtered like a small speaker would.
+  vocalIn.connect(toneDrive).connect(toneHighpass).connect(toneLowpass).connect(toneGain).connect(vocalGain);
   vocalGain.connect(limiter);
   vocalGain.connect(reverbSend).connect(convolver).connect(limiter);
   vocalGain.connect(echoSend).connect(delay);
@@ -61,9 +70,21 @@ export function createMixGraph(ctx: BaseAudioContext, destination: AudioNode, bp
   delay.connect(limiter);
   limiter.connect(output).connect(destination);
 
-  const nodes: AudioNode[] = [beatIn, vocalIn, beatGain, vocalGain, reverbSend, echoSend, convolver, delay, feedback, limiter, output];
+  const nodes: AudioNode[] = [beatIn, vocalIn, toneHighpass, toneLowpass, toneDrive, toneGain, beatGain, vocalGain, reverbSend, echoSend, convolver, delay, feedback, limiter, output];
+
+  let currentTone: RecordingEdits["effects"]["tone"] | null = null;
+  const applyTone = (tone: RecordingEdits["effects"]["tone"]) => {
+    if (tone === currentTone) return;
+    currentTone = tone;
+    const t = TONE_SETTINGS[tone];
+    toneHighpass.frequency.value = t.highpassHz;
+    toneLowpass.frequency.value = t.lowpassHz;
+    toneDrive.curve = driveCurve(t.drive) as Float32Array<ArrayBuffer> | null;
+    toneGain.gain.value = t.gain;
+  };
 
   const apply: MixGraph["apply"] = (e) => {
+    applyTone(e.effects.tone);
     const now = ctx.currentTime;
     const set = (param: AudioParam, value: number) => {
       param.cancelScheduledValues(now);
@@ -75,6 +96,7 @@ export function createMixGraph(ctx: BaseAudioContext, destination: AudioNode, bp
     set(echoSend.gain, e.effects.echo * 0.55);
   };
   // Initial values are set directly so an offline render starts at the right levels.
+  applyTone(edits.effects.tone);
   beatGain.gain.value = edits.mix.beatGain;
   vocalGain.gain.value = edits.mix.vocalGain;
   reverbSend.gain.value = edits.effects.reverb * 0.7;

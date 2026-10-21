@@ -18,13 +18,20 @@ import {
   type RecordingEdits,
   type TimeRange,
 } from "@lib/editing/edits";
+import { EMPTY_HISTORY, recordChange, undo } from "@lib/editing/history";
+import { EFFECT_PRESETS, matchPreset } from "@lib/editing/presets";
 import { mixDuration } from "@lib/playback/schedule";
 import { secondsPerBar, secondsPerBeat } from "@lib/timing/beatClock";
 import { getAudioContext } from "@/audio/context";
 import { MixPlayer } from "@/audio/mixPlayer";
 import { PlayIcon, StopIcon } from "@/components/icons";
 import { vocalTimelineSamples } from "@/components/Waveform";
+import { nowMs } from "./clock";
 import { EditorTimeline, type EditorMode } from "./EditorTimeline";
+
+const ZOOM_LEVELS = [1, 2, 4, 8] as const;
+/** Seconds played either side of a cut when previewing it. */
+const PREVIEW_LEAD = 2;
 
 export interface EditorWord {
   word: string;
@@ -59,13 +66,21 @@ export function RecordingEditor({
   const [position, setPosition] = useState(0); // on the edited timeline
   const [mode, setMode] = useState<EditorMode>("trim");
   const [selection, setSelection] = useState<TimeRange | null>(null);
+  const [zoom, setZoom] = useState<(typeof ZOOM_LEVELS)[number]>(1);
+  const [undoCount, setUndoCount] = useState(0);
+  const [previewing, setPreviewing] = useState(false);
+  const historyRef = useRef(EMPTY_HISTORY);
+  const editsRef = useRef(edits);
+  const previewRef = useRef<{ returnTo: number } | null>(null);
 
   const bar = secondsPerBar(bpm);
   const beat = secondsPerBeat(bpm);
   const duration = mixDuration({ beatFirstDownbeat, beatDuration: beatBuffer.duration, vocalOffset, vocalDuration: vocalBuffer.duration });
   const segments = keptSegments(edits, duration);
   const editedDuration = outputDuration(segments);
-  const playheadSource = outputToSource(position, segments);
+  // While previewing a cut, the player runs on a timeline that already has the cut applied.
+  const playingSegments = previewing && selection ? keptSegments(addCut(edits, selection, duration, beat), duration) : segments;
+  const playheadSource = outputToSource(position, playingSegments);
 
   useEffect(() => {
     const player = new MixPlayer(
@@ -77,6 +92,17 @@ export function RecordingEditor({
       edits,
     );
     player.onEnded = () => {
+      const preview = previewRef.current;
+      if (preview) {
+        // End of a cut preview: put the real edits back and return to where we were.
+        previewRef.current = null;
+        player.setEdits(editsRef.current);
+        player.seek(preview.returnTo);
+        setPreviewing(false);
+        setPlaying(false);
+        setPosition(preview.returnTo);
+        return;
+      }
       player.seek(0);
       setPlaying(false);
       setPosition(0);
@@ -88,7 +114,10 @@ export function RecordingEditor({
   }, [beatBuffer, vocalBuffer, bpm, beatFirstDownbeat]);
 
   useEffect(() => playerRef.current?.setVocalOffset(vocalOffset), [vocalOffset]);
-  useEffect(() => playerRef.current?.setEdits(edits), [edits]);
+  useEffect(() => {
+    editsRef.current = edits;
+    playerRef.current?.setEdits(edits);
+  }, [edits]);
 
   useEffect(() => {
     if (!playing) return;
@@ -108,14 +137,59 @@ export function RecordingEditor({
     return normalizePeaks(computePeaks(vocalTimelineSamples(vocalBuffer, vocalOffset, total), 800));
   }, [vocalBuffer, vocalOffset, beatFirstDownbeat, beatDuration]);
   const word = activeWordAt(words, playheadSource)?.word;
+  const activePreset = matchPreset(edits.effects);
 
-  const change = (next: RecordingEdits) => onEditsChange(next);
+  /** Every change goes through here so it can be undone (quick successive changes group together). */
+  function apply(next: RecordingEdits) {
+    historyRef.current = recordChange(historyRef.current, edits, nowMs());
+    setUndoCount(historyRef.current.past.length);
+    onEditsChange(next);
+  }
+  const change = (next: RecordingEdits) => apply(next);
   // Cuts and trims snap to whole beats so the beat never stutters at a join.
-  const commit = (next: RecordingEdits) => onEditsChange(normalizeEdits(next, duration, beat));
+  const commit = (next: RecordingEdits) => apply(normalizeEdits(next, duration, beat));
+
+  function undoLast() {
+    const result = undo(historyRef.current);
+    historyRef.current = result.history;
+    setUndoCount(result.history.past.length);
+    if (result.edits) onEditsChange(result.edits);
+  }
+
+  function stopPreview() {
+    const player = playerRef.current;
+    const preview = previewRef.current;
+    if (!player || !preview) return;
+    previewRef.current = null;
+    player.pause();
+    player.setEdits(editsRef.current);
+    player.seek(preview.returnTo);
+    setPreviewing(false);
+    setPlaying(false);
+    setPosition(preview.returnTo);
+  }
+
+  /** Plays a couple of seconds either side of the selection, skipping it, to hear the join. */
+  async function previewCut() {
+    const player = playerRef.current;
+    if (!player || !selection) return;
+    if (previewRef.current) return stopPreview();
+    const resuming = getAudioContext().resume(); // inside the tap (iPhone)
+    if (player.isPlaying) player.pause();
+    const withCut = addCut(edits, selection, duration, beat);
+    const joinAt = sourceToOutput(selection.start, keptSegments(withCut, duration));
+    await resuming;
+    previewRef.current = { returnTo: player.position };
+    player.setEdits(withCut);
+    player.play(Math.max(0, joinAt - PREVIEW_LEAD), joinAt + PREVIEW_LEAD);
+    setPreviewing(true);
+    setPlaying(true);
+  }
 
   async function togglePlay() {
     const player = playerRef.current;
     if (!player) return;
+    if (previewRef.current) return stopPreview();
     if (player.isPlaying) {
       player.pause();
       setPlaying(false);
@@ -128,6 +202,7 @@ export function RecordingEditor({
   }
 
   function seekOutput(out: number) {
+    if (previewRef.current) stopPreview();
     playerRef.current?.seek(out);
     setPosition(out);
   }
@@ -141,6 +216,7 @@ export function RecordingEditor({
 
   function removeSelection() {
     if (!selection) return;
+    stopPreview();
     commit(addCut(edits, selection, duration, beat));
     setSelection(null);
     setMode("trim");
@@ -195,7 +271,23 @@ export function RecordingEditor({
           ))}
         </div>
 
-        <div className="mt-3">
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1" role="group" aria-label="Zoom">
+            <button type="button" aria-label="Zoom out" disabled={zoom === 1}
+              onClick={() => setZoom(ZOOM_LEVELS[Math.max(0, ZOOM_LEVELS.indexOf(zoom) - 1)])}
+              className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-line text-lg font-bold disabled:opacity-30">−</button>
+            <span className="w-10 text-center text-sm font-bold tabular-nums">{zoom}×</span>
+            <button type="button" aria-label="Zoom in" disabled={zoom === 8}
+              onClick={() => setZoom(ZOOM_LEVELS[Math.min(ZOOM_LEVELS.length - 1, ZOOM_LEVELS.indexOf(zoom) + 1)])}
+              className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-line text-lg font-bold disabled:opacity-30">+</button>
+          </div>
+          <button type="button" onClick={undoLast} disabled={undoCount === 0}
+            className="flex min-h-11 items-center gap-1.5 rounded-xl border-2 border-line px-3 text-sm font-bold disabled:opacity-30">
+            <span aria-hidden="true">↶</span> Undo
+          </button>
+        </div>
+
+        <div className="mt-2">
           <EditorTimeline
             peaks={peaks}
             duration={duration}
@@ -208,6 +300,8 @@ export function RecordingEditor({
             onSeek={seekSource}
             onChange={change}
             onSelectionChange={setSelection}
+            zoom={zoom}
+            focusTime={mode === "cut" && selection ? (selection.start + selection.end) / 2 : playheadSource}
           />
         </div>
 
@@ -222,16 +316,18 @@ export function RecordingEditor({
         ) : (
           selection && (
             <div className="mt-2 flex flex-col gap-3">
-              <p className="text-xs text-dim">Drag the pink ends over the part you want gone (they snap to the beat). Drag the middle to move it.</p>
+              <p className="text-xs text-dim">Drag the pink ends over the part you want gone (they snap to the beat). Drag the middle to move it. Preview plays the join before you commit.</p>
               <p className="text-sm font-semibold tabular-nums">
                 Removing {formatDuration(selection.start)} – {formatDuration(selection.end)}{" "}
                 <span className="text-dim">({(selection.end - selection.start).toFixed(1)} s)</span>
               </p>
-              <div className="grid grid-cols-[1fr_2fr] gap-3">
-                <button type="button" onClick={() => { setSelection(null); setMode("trim"); }}
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => { stopPreview(); setSelection(null); setMode("trim"); }}
                   className="min-h-12 rounded-xl border-2 border-line text-sm font-bold">Cancel</button>
+                <button type="button" onClick={previewCut}
+                  className="min-h-12 rounded-xl border-2 border-hot text-sm font-bold text-hot">{previewing ? "■ Stop" : "▶ Preview"}</button>
                 <button type="button" onClick={removeSelection}
-                  className="min-h-12 rounded-xl bg-hot text-sm font-black uppercase tracking-wide text-white active:scale-[0.98]">Remove selection</button>
+                  className="min-h-12 rounded-xl bg-hot text-sm font-black uppercase tracking-wide text-white active:scale-[0.98]">Remove</button>
               </div>
             </div>
           )
@@ -262,7 +358,24 @@ export function RecordingEditor({
       </section>
 
       <section className="rounded-2xl border-2 border-line bg-panel p-4">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-dim">Effects</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-dim">Effects</h3>
+          <span className="text-xs font-semibold text-dim">{activePreset ? activePreset.label : "Custom"}</span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {EFFECT_PRESETS.map((preset) => {
+            const active = activePreset?.id === preset.id;
+            return (
+              <button key={preset.id} type="button" aria-pressed={active}
+                onClick={() => change({ ...edits, effects: { ...preset.effects } })}
+                className={`flex min-h-16 flex-col items-center justify-center rounded-xl border-2 px-1 text-center transition active:scale-95 ${active ? "border-gold bg-gold text-ink" : "border-line bg-ink"}`}>
+                <span className="text-sm font-black leading-tight">{preset.label}</span>
+                <span className={`text-[11px] leading-tight ${active ? "text-ink/70" : "text-dim"}`}>{preset.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-4 text-xs font-bold uppercase tracking-widest text-dim">Fine-tune</p>
         <Slider label="Reverb" value={edits.effects.reverb} max={1} format={(v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)}
           onChange={(v) => change({ ...edits, effects: { ...edits.effects, reverb: v } })} />
         <Slider label="Echo" value={edits.effects.echo} max={1} format={(v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)}
@@ -270,9 +383,9 @@ export function RecordingEditor({
       </section>
 
       {!isDefaultEdits(edits) && (
-        <button type="button" onClick={() => { if (confirm("Undo all edits?")) change(DEFAULT_EDITS); }}
+        <button type="button" onClick={() => change(DEFAULT_EDITS)}
           className="min-h-12 text-sm font-bold text-dim underline-offset-4 hover:text-fg hover:underline">
-          Reset all edits
+          Reset all edits <span className="font-normal">(you can undo this)</span>
         </button>
       )}
     </div>

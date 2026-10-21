@@ -29,6 +29,8 @@ export function EditorTimeline({
   onSeek,
   onChange,
   onSelectionChange,
+  zoom = 1,
+  focusTime = 0,
 }: {
   peaks: number[];
   /** Beat-timeline length of the un-edited mix. */
@@ -44,7 +46,12 @@ export function EditorTimeline({
   onSeek: (beatTime: number) => void;
   onChange: (edits: RecordingEdits) => void;
   onSelectionChange: (range: TimeRange) => void;
+  /** 1 = whole recording fits; higher = wider, scroll sideways. */
+  zoom?: number;
+  /** Beat-timeline time to keep in view when zooming (selection or playhead). */
+  focusTime?: number;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -101,6 +108,25 @@ export function EditorTimeline({
     return () => observer.disconnect();
   }, [peaks, duration, barSeconds, trimStart, trimEnd, edits.cuts, playhead]);
 
+  // When zooming, centre what the user is working on.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || duration <= 0) return;
+    scroller.scrollLeft = (focusTime / duration) * scroller.scrollWidth - scroller.clientWidth / 2;
+    // Only on zoom changes — not every time the focus moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom]);
+
+  // While zoomed, keep the playhead on screen as it moves.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || zoom === 1 || drag || duration <= 0) return;
+    const x = (playhead / duration) * scroller.scrollWidth;
+    if (x < scroller.scrollLeft || x > scroller.scrollLeft + scroller.clientWidth) {
+      scroller.scrollLeft = x - scroller.clientWidth * 0.25;
+    }
+  }, [playhead, zoom, drag, duration]);
+
   function timeAt(clientX: number): number {
     const rect = boxRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return 0;
@@ -147,10 +173,25 @@ export function EditorTimeline({
     if (drag) move(e.clientX, drag);
   }
 
-  const dragHandlers = { onPointerDown: onDragStart, onPointerMove: onDragMove, onPointerUp: endDrag, onPointerCancel: endDrag };
+  const dragHandlers = {
+    onPointerDown: onDragStart,
+    onPointerMove: onDragMove,
+    onPointerUp: endDrag,
+    onPointerCancel: endDrag,
+    // Don't let a handle tap also count as "seek here".
+    onClick: (e: React.MouseEvent) => e.stopPropagation(),
+  };
 
   return (
-    <div ref={boxRef} className="relative h-32 touch-none select-none" onPointerDown={(e) => onSeek(timeAt(e.clientX))}>
+    // Outer box scrolls sideways when zoomed; the inner box is the full-length timeline.
+    // Seeking uses click (not pointerdown) so a sideways swipe to scroll doesn't jump the playhead.
+    <div ref={scrollRef} className="overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
+    <div
+      ref={boxRef}
+      className={`relative h-32 select-none ${zoom > 1 ? "touch-pan-x" : "touch-none"}`}
+      style={{ width: `${zoom * 100}%` }}
+      onClick={(e) => onSeek(timeAt(e.clientX))}
+    >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden="true" />
 
       {/* Cuts already made: striped, fixed (undo them from the list below). */}
@@ -172,7 +213,7 @@ export function EditorTimeline({
             aria-valuemin={0}
             aria-valuemax={Math.round(duration)}
             aria-valuenow={Math.round(kind === "trimStart" ? trimStart : trimEnd)}
-            className="absolute top-0 bottom-3.5 z-10 flex w-10 -translate-x-1/2 cursor-ew-resize justify-center"
+            className="absolute top-0 bottom-3.5 z-10 flex w-10 -translate-x-1/2 cursor-ew-resize touch-none justify-center"
             style={{ left: pct(kind === "trimStart" ? trimStart : trimEnd) }}
             data-drag={kind}
             {...dragHandlers}
@@ -184,7 +225,7 @@ export function EditorTimeline({
 
       {mode === "cut" && selection && (
         <div
-          className="absolute top-0 bottom-3.5 z-10 cursor-grab border-y-2 border-hot bg-hot/30 active:cursor-grabbing"
+          className="absolute top-0 bottom-3.5 z-10 cursor-grab touch-none border-y-2 border-hot bg-hot/30 active:cursor-grabbing"
           style={{ left: pct(selection.start), width: `calc(${pct(selection.end)} - ${pct(selection.start)})` }}
           aria-label="Selection to remove — drag to move"
           data-drag="selMove"
@@ -198,7 +239,7 @@ export function EditorTimeline({
               aria-valuemin={0}
               aria-valuemax={Math.round(duration)}
               aria-valuenow={Math.round(kind === "selStart" ? selection.start : selection.end)}
-              className={`absolute top-0 z-20 flex h-full w-10 cursor-ew-resize justify-center ${kind === "selStart" ? "-left-5" : "-right-5"}`}
+              className={`absolute top-0 z-20 flex h-full w-10 cursor-ew-resize touch-none justify-center ${kind === "selStart" ? "-left-5" : "-right-5"}`}
               data-drag={kind}
               {...dragHandlers}
             >
@@ -210,6 +251,7 @@ export function EditorTimeline({
       )}
 
       <div className="pointer-events-none absolute top-0 bottom-3.5 z-0 w-0.5 bg-fg" style={{ left: pct(playhead) }} aria-hidden="true" />
+    </div>
     </div>
   );
 }

@@ -53,7 +53,11 @@ const editsSchema = z.object({
   trim: rangeSchema.nullable(),
   cuts: z.array(rangeSchema).max(20),
   mix: z.object({ vocalGain: z.number().min(0).max(2), beatGain: z.number().min(0).max(1.5) }),
-  effects: z.object({ reverb: z.number().min(0).max(1), echo: z.number().min(0).max(1) }),
+  effects: z.object({
+    reverb: z.number().min(0).max(1),
+    echo: z.number().min(0).max(1),
+    tone: z.enum(["clean", "phone", "radio"]).optional(),
+  }),
 });
 
 const wordSchema = z.object({

@@ -17,16 +17,19 @@ export interface RecordingEdits {
   cuts: TimeRange[];
   /** Linear gains (1 = unchanged). */
   mix: { vocalGain: number; beatGain: number };
-  /** 0 = off, 1 = maximum. */
-  effects: { reverb: number; echo: number };
+  /** reverb/echo: 0 = off, 1 = maximum. tone: filter the voice like a phone or radio speaker. */
+  effects: { reverb: number; echo: number; tone: VocalTone };
 }
+
+export const VOCAL_TONES = ["clean", "phone", "radio"] as const;
+export type VocalTone = (typeof VOCAL_TONES)[number];
 
 export const DEFAULT_EDITS: RecordingEdits = {
   version: 1,
   trim: null,
   cuts: [],
   mix: { vocalGain: 1, beatGain: 0.75 },
-  effects: { reverb: 0, echo: 0 },
+  effects: { reverb: 0, echo: 0, tone: "clean" },
 };
 
 export const EDIT_LIMITS = {
@@ -101,6 +104,8 @@ export function normalizeEdits(input: unknown, duration: number, gridSeconds: nu
     effects: {
       reverb: round3(clamp(num(fx.reverb, 0), 0, 1)),
       echo: round3(clamp(num(fx.echo, 0), 0, 1)),
+      // Older saved edits have no tone: treat as clean.
+      tone: (VOCAL_TONES as readonly unknown[]).includes(fx.tone) ? (fx.tone as VocalTone) : "clean",
     },
   };
 }

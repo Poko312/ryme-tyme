@@ -51,7 +51,8 @@ export class MixPlayer {
     return outputToSource(this.position, keptSegments(this.edits, mixDuration(this.track)));
   }
 
-  play(from = this.position >= this.duration - 0.01 ? 0 : this.position) {
+  /** Play from `from` (edited timeline); `stopAt` ends early (used to preview a cut). */
+  play(from = this.position >= this.duration - 0.01 ? 0 : this.position, stopAt?: number) {
     this.stopSources();
     const plan = planEditedPlayback(this.track, this.edits, from);
     const start = Math.max(0, Math.min(from, plan.duration));
@@ -66,12 +67,12 @@ export class MixPlayer {
     this.playing = true;
 
     // End detection from the audio clock (sources from many clips end at different times).
-    const endAt = when + (plan.duration - start);
+    const endAt = when + (Math.min(plan.duration, stopAt ?? Infinity) - start);
     const check = () => {
       if (!this.playing) return;
       if (this.ctx.currentTime >= endAt) {
         this.playing = false;
-        this.startPos = this.duration;
+        this.startPos = Math.min(this.duration, stopAt ?? this.duration);
         this.stopSources();
         this.onEnded?.();
         return;

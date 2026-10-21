@@ -97,7 +97,12 @@ Functions in `/lib` take time as plain numbers (seconds) — never call `AudioCo
 - Cuts snap to whole **beats** (owner asked for free-form cuts; beat snapping keeps the beat from
   stuttering while staying fine-grained); apply a ~10 ms fade at each cut. Editor has two modes:
   Trim (yellow handles) and Cut (pink selection, drag ends/middle, "Remove selection"; "Put back"
-  undoes). Seeking uses a separate full-width position slider + a back-to-start button.
+  undoes; "Preview" plays ±2 s around the join without committing). Seeking uses a separate
+  full-width position slider + a back-to-start button. Timeline zoom 1–8× (scrolls sideways,
+  follows the playhead). Undo via lib/editing/history (changes within 700 ms group into one step).
+- Effects: reverb, echo, and a vocal `tone` (clean/phone/radio: drive → highpass → lowpass, settings
+  in lib/editing/presets TONE_SETTINGS). One-tap presets (Clean, Studio, Stadium, Phone call, Radio,
+  Dub echo) set effects only; sliders fine-tune ("Custom"). Old saved edits without `tone` = clean.
 - One shared Web Audio graph builder (gain → reverb ConvolverNode / echo DelayNode) is used for
   the editor, the share page, and OfflineAudioContext video export, so they all sound the same.
 - Editing is available before saving (review screen) and after (Recordings page); "reset" clears edits.
