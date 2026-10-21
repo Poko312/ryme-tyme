@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "@lib/beats/library";
 import { activeWordAt, normalizeEdits } from "@lib/editing/edits";
 import { mixDuration } from "@lib/playback/schedule";
-import { secondsPerBar } from "@lib/timing/beatClock";
+import { secondsPerBeat } from "@lib/timing/beatClock";
 import Link from "next/link";
 import { getAudioContext } from "@/audio/context";
 import { MixPlayer } from "@/audio/mixPlayer";
@@ -93,7 +93,7 @@ export function RecordingsList({ items, highlightId }: { items: RecordingItem[];
           vocalOffset: info.vocalOffset,
           vocalDuration: vocal.duration,
         };
-        const edits = normalizeEdits(info.edits, mixDuration(track), secondsPerBar(info.bpm));
+        const edits = normalizeEdits(info.edits, mixDuration(track), secondsPerBeat(info.bpm));
         const player = new MixPlayer(ctx, beat, vocal, track, info.bpm, edits);
         l = { player, info };
         loaded.current.set(id, l);

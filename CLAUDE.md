@@ -94,7 +94,10 @@ Functions in `/lib` take time as plain numbers (seconds) — never call `AudioCo
   `{ version: 1, trim: {start, end}, cuts: [{start, end}], mix: {vocalGain, beatGain},
   effects: {reverb, echo} }`. All times are on the **beat timeline**, so trimming/cutting moves
   beat, vocals, and prompt words together and keeps them in sync.
-- Cuts snap to bar lines so the beat never stumbles; apply a ~10 ms crossfade at each cut.
+- Cuts snap to whole **beats** (owner asked for free-form cuts; beat snapping keeps the beat from
+  stuttering while staying fine-grained); apply a ~10 ms fade at each cut. Editor has two modes:
+  Trim (yellow handles) and Cut (pink selection, drag ends/middle, "Remove selection"; "Put back"
+  undoes). Seeking uses a separate full-width position slider + a back-to-start button.
 - One shared Web Audio graph builder (gain → reverb ConvolverNode / echo DelayNode) is used for
   the editor, the share page, and OfflineAudioContext video export, so they all sound the same.
 - Editing is available before saving (review screen) and after (Recordings page); "reset" clears edits.
@@ -187,7 +190,7 @@ Flag to the owner any change touching these, with steps to test on a real iPhone
       Recordings page: play/rename/delete + "x of 3 free saves". Owner confirmed working.
 - [x] Step 5 — recording editor. Migration 20261021000000_recording_edits.sql (edits jsonb, size
       check, grant update(edits)) — owner must run it (SETUP.md "Database updates"). lib/editing/edits
-      (normalize, bar-snapped cuts, kept segments, output↔source time maps, activeWordAt) and
+      (normalize, beat-snapped cuts, kept segments, output↔source time maps, activeWordAt) and
       lib/editing/plan (clips with 10 ms cut fades / 30 ms edge fades). src/audio/mixGraph is THE audio
       chain (gains → reverb convolver w/ seeded impulse + dotted-8th echo → limiter → 0.85 out);
       scheduleClip + MixPlayer (live) + renderMix (OfflineAudioContext — for step 7 share/video).

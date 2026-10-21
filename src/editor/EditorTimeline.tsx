@@ -1,32 +1,49 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { normalizeEdits, snapToBar, type RecordingEdits } from "@lib/editing/edits";
+import { normalizeEdits, snapToGrid, type RecordingEdits, type TimeRange } from "@lib/editing/edits";
 
-type Drag = { kind: "trimStart" } | { kind: "trimEnd" } | { kind: "cut"; index: number; edge: "start" | "end" };
+export type EditorMode = "trim" | "cut";
+
+type Drag =
+  | { kind: "trimStart" }
+  | { kind: "trimEnd" }
+  | { kind: "selStart" }
+  | { kind: "selEnd" }
+  | { kind: "selMove"; grabOffset: number };
 
 /**
  * The editor's timeline, drawn on the beat timeline (un-edited). Dimmed = removed.
- * Drag the yellow handles to trim; drag a pink cut's edges (they snap to bar lines); tap to seek.
+ * Trim mode: drag the yellow handles. Cut mode: drag the pink selection's ends (snapped to beats)
+ * or its middle to move it. Tapping empty space seeks.
  */
 export function EditorTimeline({
   peaks,
   duration,
+  gridSeconds,
   barSeconds,
   edits,
   playhead,
+  mode,
+  selection,
   onSeek,
   onChange,
+  onSelectionChange,
 }: {
   peaks: number[];
   /** Beat-timeline length of the un-edited mix. */
   duration: number;
+  /** Cut snapping grid (one beat). */
+  gridSeconds: number;
   barSeconds: number;
   edits: RecordingEdits;
   /** Playhead on the beat timeline. */
   playhead: number;
+  mode: EditorMode;
+  selection: TimeRange | null;
   onSeek: (beatTime: number) => void;
   onChange: (edits: RecordingEdits) => void;
+  onSelectionChange: (range: TimeRange) => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -56,11 +73,11 @@ export function EditorTimeline({
       const removed = color("--color-panel-2", "#22222a");
       const line = color("--color-line", "#33333d");
 
-      // Bar grid: small ticks every bar, taller every 4 bars, so snapping is visible.
+      // Bar grid: small ticks every bar, taller every 4 bars.
       const bars = Math.floor(duration / barSeconds);
       g.fillStyle = line;
       for (let b = 0; b <= bars; b++) {
-        const x = (b * barSeconds / duration) * w;
+        const x = ((b * barSeconds) / duration) * w;
         const tall = b % 4 === 0;
         g.fillRect(x, h - (tall ? 10 : 5), 1, tall ? 10 : 5);
       }
@@ -96,69 +113,103 @@ export function EditorTimeline({
       onChange({ ...edits, trim: { start: Math.min(t, trimEnd - 1), end: trimEnd } });
     } else if (d.kind === "trimEnd") {
       onChange({ ...edits, trim: { start: trimStart, end: Math.max(t, trimStart + 1) } });
-    } else {
-      const cuts = edits.cuts.map((c, i) => {
-        if (i !== d.index) return c;
-        const snapped = snapToBar(t, barSeconds);
-        return d.edge === "start"
-          ? { start: Math.min(snapped, c.end - barSeconds), end: c.end }
-          : { start: c.start, end: Math.max(snapped, c.start + barSeconds) };
-      });
-      onChange({ ...edits, cuts });
+    } else if (selection) {
+      const snap = (x: number) => Math.min(trimEnd, Math.max(trimStart, snapToGrid(x, gridSeconds)));
+      if (d.kind === "selStart") {
+        onSelectionChange({ start: Math.min(snap(t), selection.end - gridSeconds), end: selection.end });
+      } else if (d.kind === "selEnd") {
+        onSelectionChange({ start: selection.start, end: Math.max(snap(t), selection.start + gridSeconds) });
+      } else {
+        const length = selection.end - selection.start;
+        const start = Math.min(Math.max(trimStart, snapToGrid(t - d.grabOffset, gridSeconds)), trimEnd - length);
+        onSelectionChange({ start, end: start + length });
+      }
     }
   }
 
   function endDrag() {
     if (!drag) return;
+    const wasTrim = drag.kind === "trimStart" || drag.kind === "trimEnd";
     setDrag(null);
-    onChange(normalizeEdits(edits, duration, barSeconds));
+    if (wasTrim) onChange(normalizeEdits(edits, duration, gridSeconds));
   }
 
-  const handleProps = (d: Drag) => ({
-    onPointerDown: (e: React.PointerEvent) => {
-      e.stopPropagation();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      setDrag(d);
-    },
-    onPointerMove: (e: React.PointerEvent) => drag && move(e.clientX, drag),
-    onPointerUp: endDrag,
-    onPointerCancel: endDrag,
-  });
+  // Every draggable element says what it is in data-drag; one set of handlers serves them all.
+  function onDragStart(e: React.PointerEvent<HTMLElement>) {
+    const kind = e.currentTarget.dataset.drag as Drag["kind"] | undefined;
+    if (!kind) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag(kind === "selMove" ? { kind, grabOffset: timeAt(e.clientX) - (selection?.start ?? 0) } : { kind });
+  }
+
+  function onDragMove(e: React.PointerEvent<HTMLElement>) {
+    if (drag) move(e.clientX, drag);
+  }
+
+  const dragHandlers = { onPointerDown: onDragStart, onPointerMove: onDragMove, onPointerUp: endDrag, onPointerCancel: endDrag };
 
   return (
-    <div
-      ref={boxRef}
-      className="relative h-32 touch-none select-none"
-      onPointerDown={(e) => onSeek(timeAt(e.clientX))}
-    >
+    <div ref={boxRef} className="relative h-32 touch-none select-none" onPointerDown={(e) => onSeek(timeAt(e.clientX))}>
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden="true" />
 
+      {/* Cuts already made: striped, fixed (undo them from the list below). */}
       {edits.cuts.map((c, i) => (
-        <div key={`${c.start}-${i}`} className="absolute top-0 bottom-3.5 border-x-2 border-hot bg-hot/20" style={{ left: pct(c.start), width: `calc(${pct(c.end)} - ${pct(c.start)})` }}>
-          <div aria-label={`Drag start of cut ${i + 1}`} className="absolute -left-3 top-0 h-full w-6 cursor-ew-resize" {...handleProps({ kind: "cut", index: i, edge: "start" })} />
-          <div aria-label={`Drag end of cut ${i + 1}`} className="absolute -right-3 top-0 h-full w-6 cursor-ew-resize" {...handleProps({ kind: "cut", index: i, edge: "end" })} />
-        </div>
-      ))}
-
-      {/* Trim handles */}
-      {(["trimStart", "trimEnd"] as const).map((kind) => (
         <div
-          key={kind}
-          role="slider"
-          aria-label={kind === "trimStart" ? "Trim start" : "Trim end"}
-          aria-valuemin={0}
-          aria-valuemax={Math.round(duration)}
-          aria-valuenow={Math.round(kind === "trimStart" ? trimStart : trimEnd)}
-          className="absolute top-0 bottom-3.5 z-10 flex w-8 -translate-x-1/2 cursor-ew-resize justify-center"
-          style={{ left: pct(kind === "trimStart" ? trimStart : trimEnd) }}
-          {...handleProps({ kind })}
-        >
-          <span className="h-full w-1 rounded-full bg-gold" />
-          <span className={`absolute top-1/2 h-8 w-4 -translate-y-1/2 rounded-md bg-gold ${kind === "trimStart" ? "left-4" : "right-4"}`} />
-        </div>
+          key={`${c.start}-${i}`}
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 bottom-3.5 bg-[repeating-linear-gradient(135deg,rgba(255,46,136,0.28)_0_6px,transparent_6px_12px)]"
+          style={{ left: pct(c.start), width: `calc(${pct(c.end)} - ${pct(c.start)})` }}
+        />
       ))}
 
-      <div className="pointer-events-none absolute top-0 bottom-3.5 w-0.5 bg-fg" style={{ left: pct(playhead) }} aria-hidden="true" />
+      {mode === "trim" &&
+        (["trimStart", "trimEnd"] as const).map((kind) => (
+          <div
+            key={kind}
+            role="slider"
+            aria-label={kind === "trimStart" ? "Trim start" : "Trim end"}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(kind === "trimStart" ? trimStart : trimEnd)}
+            className="absolute top-0 bottom-3.5 z-10 flex w-10 -translate-x-1/2 cursor-ew-resize justify-center"
+            style={{ left: pct(kind === "trimStart" ? trimStart : trimEnd) }}
+            data-drag={kind}
+            {...dragHandlers}
+          >
+            <span className="h-full w-1 rounded-full bg-gold" />
+            <span className={`absolute top-1/2 h-9 w-4 -translate-y-1/2 rounded-md bg-gold ${kind === "trimStart" ? "left-5" : "right-5"}`} />
+          </div>
+        ))}
+
+      {mode === "cut" && selection && (
+        <div
+          className="absolute top-0 bottom-3.5 z-10 cursor-grab border-y-2 border-hot bg-hot/30 active:cursor-grabbing"
+          style={{ left: pct(selection.start), width: `calc(${pct(selection.end)} - ${pct(selection.start)})` }}
+          aria-label="Selection to remove — drag to move"
+          data-drag="selMove"
+          {...dragHandlers}
+        >
+          {(["selStart", "selEnd"] as const).map((kind) => (
+            <div
+              key={kind}
+              role="slider"
+              aria-label={kind === "selStart" ? "Start of part to remove" : "End of part to remove"}
+              aria-valuemin={0}
+              aria-valuemax={Math.round(duration)}
+              aria-valuenow={Math.round(kind === "selStart" ? selection.start : selection.end)}
+              className={`absolute top-0 z-20 flex h-full w-10 cursor-ew-resize justify-center ${kind === "selStart" ? "-left-5" : "-right-5"}`}
+              data-drag={kind}
+              {...dragHandlers}
+            >
+              <span className="h-full w-1 rounded-full bg-hot" />
+              <span className="absolute top-1/2 h-9 w-4 -translate-y-1/2 rounded-md bg-hot" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute top-0 bottom-3.5 z-0 w-0.5 bg-fg" style={{ left: pct(playhead) }} aria-hidden="true" />
     </div>
   );
 }

@@ -3,18 +3,20 @@ import {
   activeWordAt,
   addCut,
   DEFAULT_EDITS,
+  defaultCutSelection,
   isDefaultEdits,
   keptSegments,
   normalizeEdits,
   outputDuration,
   outputToSource,
   removeCut,
-  snapToBar,
+  snapToGrid,
   sourceToOutput,
   type RecordingEdits,
 } from "./edits";
 
-const BAR = 2; // 120 BPM
+const BEAT = 0.5; // 120 BPM: the cut grid
+const BAR = 2;
 const DUR = 40; // 20 bars
 
 const edits = (over: Partial<RecordingEdits>): RecordingEdits => ({ ...DEFAULT_EDITS, ...over });
@@ -34,13 +36,17 @@ describe("normalizeEdits", () => {
     expect(normalizeEdits({ trim: { start: 10, end: 10.5 } }, DUR, BAR).trim).toBeNull();
   });
 
-  it("snaps cuts to bar lines and merges overlaps", () => {
-    const e = normalizeEdits({ cuts: [{ start: 9.4, end: 12.3 }, { start: 11, end: 15.2 }, { start: 30.2, end: 30.4 }] }, DUR, BAR);
-    expect(e.cuts).toEqual([{ start: 10, end: 16 }]); // 30.2–30.4 snaps to nothing and is dropped
+  it("snaps cuts to the beat grid and merges overlaps", () => {
+    const e = normalizeEdits({ cuts: [{ start: 9.4, end: 12.3 }, { start: 11, end: 15.2 }, { start: 30.1, end: 30.2 }] }, DUR, BEAT);
+    expect(e.cuts).toEqual([{ start: 9.5, end: 15 }]); // 30.1–30.2 snaps to nothing and is dropped
+  });
+
+  it("allows a one-beat cut", () => {
+    expect(normalizeEdits({ cuts: [{ start: 3.1, end: 3.6 }] }, DUR, BEAT).cuts).toEqual([{ start: 3, end: 3.5 }]);
   });
 
   it("keeps cuts inside the trimmed region", () => {
-    const e = normalizeEdits({ trim: { start: 4, end: 20 }, cuts: [{ start: 0, end: 6 }, { start: 18, end: 30 }] }, DUR, BAR);
+    const e = normalizeEdits({ trim: { start: 4, end: 20 }, cuts: [{ start: 0, end: 6 }, { start: 18, end: 30 }] }, DUR, BEAT);
     expect(e.cuts).toEqual([{ start: 4, end: 6 }, { start: 18, end: 20 }]);
   });
 
@@ -55,16 +61,26 @@ describe("normalizeEdits", () => {
   });
 });
 
-describe("snapToBar / addCut / removeCut", () => {
-  it("snaps to the nearest bar", () => {
-    expect(snapToBar(4.9, BAR)).toBe(4);
-    expect(snapToBar(5.1, BAR)).toBe(6);
+describe("snapToGrid / addCut / removeCut / defaultCutSelection", () => {
+  it("snaps to the nearest grid line", () => {
+    expect(snapToGrid(4.9, BAR)).toBe(4);
+    expect(snapToGrid(5.1, BAR)).toBe(6);
+    expect(snapToGrid(5.1, BEAT)).toBe(5);
   });
 
-  it("adds a whole-bar cut starting at the current bar", () => {
-    const e = addCut(DEFAULT_EDITS, 7.3, 2, DUR, BAR);
-    expect(e.cuts).toEqual([{ start: 6, end: 10 }]);
+  it("cuts any range, snapped to beats", () => {
+    const e = addCut(DEFAULT_EDITS, { start: 7.3, end: 12.8 }, DUR, BEAT);
+    expect(e.cuts).toEqual([{ start: 7.5, end: 13 }]);
     expect(removeCut(e, 0).cuts).toEqual([]);
+  });
+
+  it("starts the selection at the playhead, inside the trimmed area", () => {
+    expect(defaultCutSelection(DEFAULT_EDITS, 10.2, DUR, BEAT)).toEqual({ start: 10, end: 14 });
+    const trimmed = { ...DEFAULT_EDITS, trim: { start: 2, end: 12 } };
+    const sel = defaultCutSelection(trimmed, 11.9, DUR, BEAT);
+    expect(sel.start).toBeGreaterThanOrEqual(2);
+    expect(sel.end).toBeLessThanOrEqual(12);
+    expect(sel.end - sel.start).toBeGreaterThan(0);
   });
 });
 

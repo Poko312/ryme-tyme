@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isDefaultEdits, normalizeEdits, type RecordingEdits } from "@lib/editing/edits";
 import { mixDuration } from "@lib/playback/schedule";
-import { secondsPerBar } from "@lib/timing/beatClock";
+import { secondsPerBeat } from "@lib/timing/beatClock";
 import { getAudioContext } from "@/audio/context";
 import { buttonClass } from "@/components/ui";
 import { RecordingEditor } from "@/editor/RecordingEditor";
@@ -36,7 +36,7 @@ export function EditRecording({ id, info }: { id: string; info: PlaybackInfo }) 
       .then(([beat, vocal]) => {
         if (cancelled) return;
         const duration = mixDuration({ beatFirstDownbeat: info.beatFirstDownbeat, beatDuration: beat.duration, vocalOffset: info.vocalOffset, vocalDuration: vocal.duration });
-        const savedEdits = normalizeEdits(info.edits, duration, secondsPerBar(info.bpm));
+        const savedEdits = normalizeEdits(info.edits, duration, secondsPerBeat(info.bpm));
         setLoaded({ beat, vocal, savedEdits });
         setEdits(savedEdits);
       })
@@ -90,9 +90,9 @@ export function EditRecording({ id, info }: { id: string; info: PlaybackInfo }) 
         onEditsChange={setEdits}
       />
       {error && <p role="alert" className="rounded-xl bg-danger/15 px-4 py-3 text-sm font-semibold text-danger">{error}</p>}
-      <div className="sticky bottom-20 z-10 -mx-5 grid grid-cols-[1fr_2fr] gap-3 bg-linear-to-t from-ink from-75% to-transparent px-5 pt-6 pb-4">
+      <div className="grid grid-cols-[1fr_2fr] gap-3 pt-2">
         <button type="button" onClick={cancel} disabled={saving} className={buttonClass("secondary", "min-h-16")}>Cancel</button>
-        <button type="button" onClick={save} disabled={saving || !dirty} className={buttonClass("primary", "min-h-16 font-display text-2xl uppercase shadow-xl shadow-ink")}>
+        <button type="button" onClick={save} disabled={saving || !dirty} className={buttonClass("primary", "min-h-16 font-display text-2xl uppercase ")}>
           {saving ? "Saving…" : dirty ? "Save edits" : "No changes"}
         </button>
       </div>

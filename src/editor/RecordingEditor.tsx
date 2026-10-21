@@ -7,6 +7,7 @@ import {
   activeWordAt,
   addCut,
   DEFAULT_EDITS,
+  defaultCutSelection,
   isDefaultEdits,
   keptSegments,
   normalizeEdits,
@@ -15,6 +16,7 @@ import {
   removeCut,
   sourceToOutput,
   type RecordingEdits,
+  type TimeRange,
 } from "@lib/editing/edits";
 import { mixDuration } from "@lib/playback/schedule";
 import { secondsPerBar, secondsPerBeat } from "@lib/timing/beatClock";
@@ -22,7 +24,7 @@ import { getAudioContext } from "@/audio/context";
 import { MixPlayer } from "@/audio/mixPlayer";
 import { PlayIcon, StopIcon } from "@/components/icons";
 import { vocalTimelineSamples } from "@/components/Waveform";
-import { EditorTimeline } from "./EditorTimeline";
+import { EditorTimeline, type EditorMode } from "./EditorTimeline";
 
 export interface EditorWord {
   word: string;
@@ -55,6 +57,8 @@ export function RecordingEditor({
   const playerRef = useRef<MixPlayer | null>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0); // on the edited timeline
+  const [mode, setMode] = useState<EditorMode>("trim");
+  const [selection, setSelection] = useState<TimeRange | null>(null);
 
   const bar = secondsPerBar(bpm);
   const beat = secondsPerBeat(bpm);
@@ -106,7 +110,8 @@ export function RecordingEditor({
   const word = activeWordAt(words, playheadSource)?.word;
 
   const change = (next: RecordingEdits) => onEditsChange(next);
-  const commit = (next: RecordingEdits) => onEditsChange(normalizeEdits(next, duration, bar));
+  // Cuts and trims snap to whole beats so the beat never stutters at a join.
+  const commit = (next: RecordingEdits) => onEditsChange(normalizeEdits(next, duration, beat));
 
   async function togglePlay() {
     const player = playerRef.current;
@@ -122,10 +127,23 @@ export function RecordingEditor({
     }
   }
 
-  function seekSource(beatTime: number) {
-    const out = sourceToOutput(beatTime, segments);
+  function seekOutput(out: number) {
     playerRef.current?.seek(out);
     setPosition(out);
+  }
+
+  const seekSource = (beatTime: number) => seekOutput(sourceToOutput(beatTime, segments));
+
+  function switchMode(next: EditorMode) {
+    setMode(next);
+    if (next === "cut" && !selection) setSelection(defaultCutSelection(edits, playheadSource, duration, beat));
+  }
+
+  function removeSelection() {
+    if (!selection) return;
+    commit(addCut(edits, selection, duration, beat));
+    setSelection(null);
+    setMode("trim");
   }
 
   const trimStart = edits.trim?.start ?? 0;
@@ -139,7 +157,11 @@ export function RecordingEditor({
   return (
     <div className="flex flex-col gap-5">
       <section className="rounded-2xl border-2 border-line bg-panel p-4">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => seekOutput(0)} aria-label="Back to the start"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-line text-fg active:scale-95">
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true"><path d="M6 5h2v14H6zM20 6.2v11.6a1 1 0 0 1-1.5.86L9.6 12.86a1 1 0 0 1 0-1.72l8.9-5.8A1 1 0 0 1 20 6.2Z" /></svg>
+          </button>
           <button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"}
             className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full active:scale-95 ${playing ? "bg-hot text-white" : "bg-gold text-ink"}`}>
             {playing ? <StopIcon className="h-7 w-7" /> : <PlayIcon className="ml-1 h-7 w-7" />}
@@ -153,35 +175,77 @@ export function RecordingEditor({
           </div>
         </div>
 
-        <div className="mt-4">
-          <EditorTimeline peaks={peaks} duration={duration} barSeconds={bar} edits={edits} playhead={playheadSource} onSeek={seekSource} onChange={change} />
-        </div>
-        <p className="mt-1 text-xs text-dim">Drag the yellow handles to trim. Tap the waveform to jump.</p>
+        <input
+          type="range"
+          aria-label="Position"
+          min={0}
+          max={Math.max(0.01, editedDuration)}
+          step={0.01}
+          value={Math.min(position, editedDuration)}
+          onChange={(e) => seekOutput(Number(e.target.value))}
+          className="mt-4 h-10 w-full accent-fg"
+        />
 
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <Stepper label="Start" value={formatDuration(trimStart)} onMinus={() => nudgeTrim("start", -beat)} onPlus={() => nudgeTrim("start", beat)} />
-          <Stepper label="End" value={formatDuration(trimEnd)} onMinus={() => nudgeTrim("end", -beat)} onPlus={() => nudgeTrim("end", beat)} />
+        <div role="radiogroup" aria-label="Editing mode" className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-ink p-1">
+          {(["trim", "cut"] as const).map((m) => (
+            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => switchMode(m)}
+              className={`min-h-11 rounded-lg text-sm font-bold transition ${mode === m ? (m === "trim" ? "bg-gold text-ink" : "bg-hot text-white") : "text-dim"}`}>
+              {m === "trim" ? "Trim the ends" : "✂ Cut out a part"}
+            </button>
+          ))}
         </div>
-      </section>
 
-      <section className="rounded-2xl border-2 border-line bg-panel p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-dim">Cut out a part</h3>
-          <button type="button" onClick={() => commit(addCut(edits, playheadSource, 2, duration, bar))}
-            className="min-h-11 rounded-xl border-2 border-hot px-4 text-sm font-bold text-hot active:scale-95">
-            ✂ Cut 2 bars here
-          </button>
+        <div className="mt-3">
+          <EditorTimeline
+            peaks={peaks}
+            duration={duration}
+            gridSeconds={beat}
+            barSeconds={bar}
+            edits={edits}
+            playhead={playheadSource}
+            mode={mode}
+            selection={selection}
+            onSeek={seekSource}
+            onChange={change}
+            onSelectionChange={setSelection}
+          />
         </div>
-        <p className="mt-2 text-xs text-dim">Move the playhead to a fumbled bar, then cut. Drag the pink edges to widen — cuts snap to whole bars so the beat stays on time.</p>
+
+        {mode === "trim" ? (
+          <>
+            <p className="mt-1 text-xs text-dim">Drag the yellow handles to cut dead air off the start and end.</p>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <Stepper label="Start" value={formatDuration(trimStart)} onMinus={() => nudgeTrim("start", -beat)} onPlus={() => nudgeTrim("start", beat)} />
+              <Stepper label="End" value={formatDuration(trimEnd)} onMinus={() => nudgeTrim("end", -beat)} onPlus={() => nudgeTrim("end", beat)} />
+            </div>
+          </>
+        ) : (
+          selection && (
+            <div className="mt-2 flex flex-col gap-3">
+              <p className="text-xs text-dim">Drag the pink ends over the part you want gone (they snap to the beat). Drag the middle to move it.</p>
+              <p className="text-sm font-semibold tabular-nums">
+                Removing {formatDuration(selection.start)} – {formatDuration(selection.end)}{" "}
+                <span className="text-dim">({(selection.end - selection.start).toFixed(1)} s)</span>
+              </p>
+              <div className="grid grid-cols-[1fr_2fr] gap-3">
+                <button type="button" onClick={() => { setSelection(null); setMode("trim"); }}
+                  className="min-h-12 rounded-xl border-2 border-line text-sm font-bold">Cancel</button>
+                <button type="button" onClick={removeSelection}
+                  className="min-h-12 rounded-xl bg-hot text-sm font-black uppercase tracking-wide text-white active:scale-[0.98]">Remove selection</button>
+              </div>
+            </div>
+          )
+        )}
+
         {edits.cuts.length > 0 && (
-          <ul className="mt-3 flex flex-col gap-2">
+          <ul className="mt-4 flex flex-col gap-2" aria-label="Removed parts">
             {edits.cuts.map((c, i) => (
               <li key={`${c.start}-${i}`} className="flex items-center justify-between rounded-xl bg-ink px-4 py-2">
-                <span className="text-sm font-semibold">
-                  Bars {Math.round(c.start / bar) + 1}–{Math.round(c.end / bar)} <span className="text-dim">({formatDuration(c.end - c.start)})</span>
+                <span className="text-sm font-semibold tabular-nums">
+                  Removed {formatDuration(c.start)} – {formatDuration(c.end)}
                 </span>
-                <button type="button" onClick={() => change(removeCut(edits, i))} className="min-h-10 px-2 text-sm font-bold text-dim hover:text-fg">
-                  Undo cut
+                <button type="button" onClick={() => change(removeCut(edits, i))} className="min-h-10 px-2 text-sm font-bold text-gold">
+                  Put back
                 </button>
               </li>
             ))}

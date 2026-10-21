@@ -143,9 +143,9 @@ export function RecordingReview({
 
       {error && <p role="alert" className="rounded-xl bg-danger/15 px-4 py-3 text-sm font-semibold text-danger">{error}</p>}
 
-      <div className="sticky bottom-20 z-10 -mx-5 grid grid-cols-[1fr_2fr] gap-3 bg-linear-to-t from-ink from-75% to-transparent px-5 pt-6 pb-4">
+      <div className="grid grid-cols-[1fr_2fr] gap-3 pt-2">
         <button type="button" onClick={discard} disabled={saving} className={buttonClass("secondary", "min-h-16")}>Discard</button>
-        <button type="button" onClick={save} disabled={saving || !title.trim()} className={buttonClass("primary", "min-h-16 font-display text-2xl uppercase shadow-xl shadow-ink")}>
+        <button type="button" onClick={save} disabled={saving || !title.trim()} className={buttonClass("primary", "min-h-16 font-display text-2xl uppercase ")}>
           {saving ? "Saving…" : "Save"}
         </button>
       </div>

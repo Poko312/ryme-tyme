@@ -13,7 +13,7 @@ export interface RecordingEdits {
   version: 1;
   /** Keep only this part (null = keep everything). */
   trim: TimeRange | null;
-  /** Remove these parts. Always whole bars, sorted, non-overlapping. */
+  /** Remove these parts. Always on whole beats, sorted, non-overlapping. */
   cuts: TimeRange[];
   /** Linear gains (1 = unchanged). */
   mix: { vocalGain: number; beatGain: number };
@@ -40,17 +40,20 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x
 const num = (x: unknown, fallback: number) => (typeof x === "number" && Number.isFinite(x) ? x : fallback);
 const round3 = (x: number) => Math.round(x * 1000) / 1000;
 
-/** Nearest bar line. */
-export function snapToBar(t: number, barSeconds: number): number {
-  return Math.round(t / barSeconds) * barSeconds;
+/**
+ * Nearest grid line. Cuts use a one-beat grid: cutting on whole beats keeps the beat from
+ * stuttering at the join, while still being fine enough to remove a single fumbled word.
+ */
+export function snapToGrid(t: number, gridSeconds: number): number {
+  return Math.round(t / gridSeconds) * gridSeconds;
 }
 
 /**
  * Cleans edits from any source (UI, saved JSON, untrusted input): clamps values, snaps cuts to
- * bars, merges overlapping cuts, and drops anything that would leave nothing to play.
- * `duration` is the playable length of the un-edited mix.
+ * the beat grid, merges overlapping cuts, and drops anything that would leave nothing to play.
+ * `duration` is the playable length of the un-edited mix; `gridSeconds` is one beat.
  */
-export function normalizeEdits(input: unknown, duration: number, barSeconds: number): RecordingEdits {
+export function normalizeEdits(input: unknown, duration: number, gridSeconds: number): RecordingEdits {
   const o = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const mix = (typeof o.mix === "object" && o.mix ? o.mix : {}) as Record<string, unknown>;
   const fx = (typeof o.effects === "object" && o.effects ? o.effects : {}) as Record<string, unknown>;
@@ -71,10 +74,10 @@ export function normalizeEdits(input: unknown, duration: number, barSeconds: num
   const snapped = rawCuts
     .slice(0, EDIT_LIMITS.maxCuts * 2)
     .map((c) => ({
-      start: clamp(snapToBar(num(c?.start, 0), barSeconds), keepFrom, keepTo),
-      end: clamp(snapToBar(num(c?.end, 0), barSeconds), keepFrom, keepTo),
+      start: clamp(snapToGrid(num(c?.start, 0), gridSeconds), keepFrom, keepTo),
+      end: clamp(snapToGrid(num(c?.end, 0), gridSeconds), keepFrom, keepTo),
     }))
-    .filter((c) => c.end - c.start >= barSeconds * 0.99)
+    .filter((c) => c.end - c.start >= gridSeconds * 0.99)
     .sort((a, b) => a.start - b.start);
 
   const cuts: TimeRange[] = [];
@@ -106,10 +109,18 @@ export function isDefaultEdits(e: RecordingEdits): boolean {
   return JSON.stringify(e) === JSON.stringify(DEFAULT_EDITS);
 }
 
-/** Adds a cut of `bars` bars starting at the bar containing `at` (beat timeline). */
-export function addCut(edits: RecordingEdits, at: number, bars: number, duration: number, barSeconds: number): RecordingEdits {
-  const start = Math.floor(at / barSeconds) * barSeconds;
-  return normalizeEdits({ ...edits, cuts: [...edits.cuts, { start, end: start + bars * barSeconds }] }, duration, barSeconds);
+/** Removes the range [start, end] of the beat timeline (snapped to the beat grid). */
+export function addCut(edits: RecordingEdits, range: TimeRange, duration: number, gridSeconds: number): RecordingEdits {
+  return normalizeEdits({ ...edits, cuts: [...edits.cuts, range] }, duration, gridSeconds);
+}
+
+/** A sensible starting selection for Cut mode: about two bars at `at`, inside the kept area. */
+export function defaultCutSelection(edits: RecordingEdits, at: number, duration: number, gridSeconds: number): TimeRange {
+  const from = edits.trim?.start ?? 0;
+  const to = edits.trim?.end ?? duration;
+  const length = Math.min(gridSeconds * 8, Math.max(gridSeconds, (to - from) / 3));
+  const start = Math.min(Math.max(from, snapToGrid(at, gridSeconds)), Math.max(from, to - length));
+  return { start, end: Math.min(to, start + length) };
 }
 
 export function removeCut(edits: RecordingEdits, index: number): RecordingEdits {
